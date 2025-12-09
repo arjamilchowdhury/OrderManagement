@@ -1,389 +1,448 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { db } from '../services/firebase';
-import { ref, query, orderByChild, limitToLast, get, update, endAt } from 'firebase/database';
-import { OrderRecord, STATUS_OPTIONS } from '../types';
+import { ref, query, orderByChild, limitToLast, get, endAt, equalTo } from 'firebase/database';
+import type { OrderRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 
-// Safe access to XLSX from CDN
-const XLSX = (window as any).XLSX;
+const PAGE_SIZE = 50;
 
-const PAGE_SIZE = 100;
+// Search Field Mapping
+const SEARCH_FIELDS = [
+  { label: 'Order Number', key: 'OrderNumber', type: 'exact' },
+  { label: 'Material', key: 'Material Number', type: 'exact' },
+  { label: 'Sales Document', key: 'SalesDocument', type: 'exact' }
+];
 
-export const Reconciliation: React.FC = () => {
+interface Cursor {
+  value: string | number;
+  key: string;
+}
+
+interface ReconciliationProps {
+  onEdit: (id: string) => void;
+}
+
+export const Reconciliation: React.FC<ReconciliationProps> = ({ onEdit }) => {
   const { userProfile } = useAuth();
+  const isAdmin = userProfile?.role === 'admin';
+
+  // --- State Management ---
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [noMoreData, setNoMoreData] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Pagination cursor
-  const [oldestLoadedKey, setOldestLoadedKey] = useState<string | null>(null);
-  const [oldestLoadedDate, setOldestLoadedDate] = useState<string | null>(null);
+  // Search State
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchField, setSearchField] = useState(SEARCH_FIELDS[0].key);
+  const [searchText, setSearchText] = useState('');
+  const [activeSearch, setActiveSearch] = useState<{field: string, text: string} | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [cursorStack, setCursorStack] = useState<Map<number, Cursor | null>>(new Map());
+  const [hasNextPage, setHasNextPage] = useState(true);
 
-  // --- Data Fetching ---
+  // --- Data Fetching Logic ---
 
-  const fetchLatestOrders = async () => {
+  const fetchOrders = async (page: number, currentCursor: Cursor | null, searchParams: {field: string, text: string} | null) => {
     setLoading(true);
+    setError(null);
+    
     try {
-      const ordersRef = ref(db, 'order_management/master_recon_file');
-      const q = query(ordersRef, orderByChild('OrderDate'), limitToLast(PAGE_SIZE));
-      
+      const dbRef = ref(db, 'order_management/master_recon_file');
+      let q;
+
+      if (searchParams) {
+        // --- SEARCH MODE ---
+        let baseQuery = query(dbRef, orderByChild(searchParams.field));
+        
+        if (currentCursor) {
+            q = query(baseQuery, equalTo(searchParams.text), limitToLast(PAGE_SIZE + 1), endAt(currentCursor.value, currentCursor.key));
+        } else {
+            q = query(baseQuery, equalTo(searchParams.text), limitToLast(PAGE_SIZE));
+        }
+
+      } else {
+        // --- BROWSE MODE (Default) ---
+        if (currentCursor) {
+           q = query(dbRef, orderByChild('OrderDate'), limitToLast(PAGE_SIZE + 1), endAt(currentCursor.value, currentCursor.key));
+        } else {
+           q = query(dbRef, orderByChild('OrderDate'), limitToLast(PAGE_SIZE));
+        }
+      }
+
       const snapshot = await get(q);
+      
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const loadedOrders: OrderRecord[] = Object.keys(data).map(key => ({
+        let loadedOrders: OrderRecord[] = Object.keys(data).map(key => ({
           ...data[key],
           Code: key
         }));
 
+        // --- Post-Processing ---
+        
+        // Sort descending by date locally for display consistency
         loadedOrders.sort((a, b) => {
-           return new Date(b.OrderDate).getTime() - new Date(a.OrderDate).getTime();
+           const dateA = new Date(a.OrderDate || 0).getTime();
+           const dateB = new Date(b.OrderDate || 0).getTime();
+           return dateB - dateA;
         });
+
+        // Handle Pagination Overlap
+        if (currentCursor) {
+           loadedOrders = loadedOrders.filter(o => o.Code !== currentCursor.key);
+        }
+
+        // Check for "Next Page" availability
+        if (loadedOrders.length < PAGE_SIZE && currentCursor) {
+            setHasNextPage(false);
+        } else if (loadedOrders.length === 0) {
+            setHasNextPage(false);
+        } else {
+            setHasNextPage(true);
+        }
 
         setOrders(loadedOrders);
-        
+
+        // Prepare Cursor for Next Page
         if (loadedOrders.length > 0) {
-          const oldest = loadedOrders[loadedOrders.length - 1];
-          setOldestLoadedKey(oldest.Code);
-          setOldestLoadedDate(oldest.OrderDate);
+           const lastItem = loadedOrders[loadedOrders.length - 1];
+           const nextCursorValue = searchParams ? lastItem[searchParams.field] : lastItem.OrderDate;
+           
+           setCursorStack(prev => {
+             const newMap = new Map(prev);
+             newMap.set(page + 1, { value: nextCursorValue, key: lastItem.Code });
+             return newMap;
+           });
         }
+
       } else {
         setOrders([]);
+        setHasNextPage(false);
       }
-    } catch (error) {
-      console.error("Error fetching orders:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const loadMore = async () => {
-    if (!oldestLoadedDate || !oldestLoadedKey) return;
-    setLoading(true);
-
-    try {
-      const ordersRef = ref(db, 'order_management/master_recon_file');
-      const q = query(
-        ordersRef, 
-        orderByChild('OrderDate'), 
-        endAt(oldestLoadedDate, oldestLoadedKey), 
-        limitToLast(PAGE_SIZE + 1)
-      );
-
-      const snapshot = await get(q);
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const newOrders: OrderRecord[] = Object.keys(data).map(key => ({
-          ...data[key],
-          Code: key
-        }));
-
-        const filteredNewOrders = newOrders.filter(o => o.Code !== oldestLoadedKey);
-
-        if (filteredNewOrders.length === 0) {
-          setNoMoreData(true);
-        } else {
-            filteredNewOrders.sort((a, b) => new Date(b.OrderDate).getTime() - new Date(a.OrderDate).getTime());
-            setOrders(prev => [...prev, ...filteredNewOrders]);
-            const oldest = filteredNewOrders[filteredNewOrders.length - 1];
-            setOldestLoadedKey(oldest.Code);
-            setOldestLoadedDate(oldest.OrderDate);
-        }
+    } catch (err: any) {
+      console.error("Data Load Error:", err);
+      if (err.message && err.message.includes('index')) {
+        setError(`Missing Index: Please add ".indexOn": ["OrderDate", "${searchField}"] to Firebase Rules.`);
       } else {
-        setNoMoreData(true);
+        setError(err.message || 'Unknown error occurred');
       }
-    } catch (error) {
-      console.error("Error loading more:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  // --- Handlers ---
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchText.trim()) return;
+
+    setCurrentPage(1);
+    setCursorStack(new Map());
+    setActiveSearch({ field: searchField, text: searchText.trim() });
+    setSearchMode(true);
+  };
+
+  const clearSearch = () => {
+    setSearchText('');
+    setSearchMode(false);
+    setActiveSearch(null);
+    setCurrentPage(1);
+    setCursorStack(new Map());
+  };
+
+  const goToPage = (pageNumber: number) => {
+    if (pageNumber === 1) {
+        setCurrentPage(1);
+        return;
+    }
+    const cursor = cursorStack.get(pageNumber);
+    if (cursor) {
+        setCurrentPage(pageNumber);
+    }
+  };
+
+  // --- Effects ---
 
   useEffect(() => {
-    fetchLatestOrders();
-  }, []);
+    const cursor = currentPage === 1 ? null : cursorStack.get(currentPage) || null;
+    fetchOrders(currentPage, cursor, activeSearch);
+  }, [currentPage, activeSearch]);
 
-  // --- Filtering ---
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value.toLowerCase());
-  };
+  // --- Render Helpers ---
 
-  const toggleStatusFilter = (status: string) => {
-    setStatusFilters(prev => 
-      prev.includes(status) 
-        ? prev.filter(s => s !== status) 
-        : [...prev, status]
-    );
-  };
+  const renderPaginationNumbers = () => {
+    const pages = [];
+    const clickableLimit = hasNextPage ? currentPage + 1 : currentPage;
+    
+    let start = Math.max(1, currentPage - 2);
+    let end = Math.max(start + 4, currentPage + 1);
 
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch = 
-      (order.OrderNumber || '').toLowerCase().includes(searchTerm) ||
-      (order.SalesDocument || '').toLowerCase().includes(searchTerm) ||
-      (order.BatchNumber || '').toLowerCase().includes(searchTerm) ||
-      (order.Material || '').toLowerCase().includes(searchTerm) ||
-      (order.ClubName || '').toLowerCase().includes(searchTerm);
-
-    let matchesStatus = true;
-    if (statusFilters.length > 0) {
-      matchesStatus = statusFilters.some(filter => {
-        const s = (order.Status || '').toLowerCase();
-        if (filter === 'Shipped') return s.includes('shipped');
-        if (filter === 'Canceled') return s.includes('canceled');
-        if (filter === 'Not shipped') return !s.includes('shipped');
-        if (filter === 'Duplicate') return s.includes('duplicate');
-        if (filter === 'PA') return s.includes('pa');
-        return s.includes(filter.toLowerCase());
-      });
-    }
-
-    return matchesSearch && matchesStatus;
-  });
-
-  // --- Excel Upload ---
-
-  const processFile = (file: File) => {
-    if (!XLSX) {
-      alert("Excel parser not loaded. Please refresh the page.");
-      return;
-    }
-
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData: any[] = XLSX.utils.sheet_to_json(sheet);
-
-        const updates: Record<string, any> = {};
-        let count = 0;
-
-        jsonData.forEach(row => {
-          if (row.Code) {
-            const record: OrderRecord = {
-              OrderNumber: row.OrderNumber || '',
-              SalesDocument: row.SalesDocument || '',
-              OrderDate: row.OrderDate || '',
-              BatchNumber: row.BatchNumber || '',
-              Year: row.Year || '',
-              Material: row.Material || '',
-              ClubName: row.ClubName || '',
-              OrderType: row.OrderType || 'RECONCILIATION',
-              Status: row.Status || '',
-              CDD: row.CDD || '',
-              UPSTrackingNumber: row.UPSTrackingNumber || '',
-              Code: row.Code
-            };
-            updates[`/order_management/master_recon_file/${row.Code}`] = record;
-            count++;
-          }
-        });
-
-        if (count > 0) {
-            await update(ref(db), updates);
-            alert(`Successfully processed ${count} records.`);
-            fetchLatestOrders();
-        } else {
-            alert("No valid records found (checking 'Code' column).");
+    for (let i = start; i <= end; i++) {
+        if (i <= clickableLimit || cursorStack.has(i)) {
+             pages.push(
+                <button
+                    key={i}
+                    onClick={() => goToPage(i)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-medium transition-colors ${
+                        currentPage === i 
+                        ? 'bg-brand-600 text-white shadow-md' 
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                >
+                    {i}
+                </button>
+             );
         }
-
-      } catch (err) {
-        console.error("Upload error", err);
-        alert("Error processing file.");
-      } finally {
-        setUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleFileDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (userProfile?.role !== 'admin') return;
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
     }
+    return pages;
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 h-full">
       
-      {/* Header & Controls Card */}
-      <div className="bg-white rounded-xl shadow-soft border border-slate-100 p-5 flex flex-col md:flex-row gap-4 justify-between items-center z-20">
-        
-        {/* Search */}
-        <div className="relative w-full md:w-96 group">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none transition-colors group-focus-within:text-brand-500">
-            <svg className="h-5 w-5 text-slate-400 group-focus-within:text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm leading-5 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 transition-all shadow-inner"
-            placeholder="Search orders, materials, clubs..."
-            value={searchTerm}
-            onChange={handleSearchChange}
-          />
-        </div>
+      {/* 1. Control Panel */}
+      <div className="bg-white rounded-xl shadow-soft border border-slate-100 p-4 z-20">
+        <form onSubmit={handleSearchSubmit} className="flex flex-col md:flex-row gap-4 items-end md:items-center justify-between">
+            
+            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto flex-1">
+                {/* Search Type Selector */}
+                <div className="w-full md:w-48">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Search By</label>
+                    <select
+                        value={searchField}
+                        onChange={(e) => setSearchField(e.target.value)}
+                        disabled={loading}
+                        className="block w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+                    >
+                        {SEARCH_FIELDS.map(f => (
+                            <option key={f.key} value={f.key}>{f.label}</option>
+                        ))}
+                    </select>
+                </div>
 
-        {/* Filter */}
-        <div className="relative w-full md:w-auto">
-          <button
-            onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className={`w-full md:w-auto inline-flex justify-center items-center px-5 py-2.5 border rounded-lg text-sm font-medium transition-all ${isFilterOpen || statusFilters.length > 0 ? 'bg-brand-50 text-brand-700 border-brand-200 shadow-sm' : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300'}`}
-          >
-            <svg className={`mr-2 h-4 w-4 ${statusFilters.length > 0 ? 'text-brand-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-            Filter Status 
-            {statusFilters.length > 0 && (
-              <span className="ml-2 bg-brand-200 text-brand-800 text-xs py-0.5 px-2 rounded-full font-bold">
-                {statusFilters.length}
-              </span>
+                {/* Search Input */}
+                <div className="w-full md:flex-1 relative">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Search Term</label>
+                    <div className="relative">
+                        <input 
+                            type="text" 
+                            value={searchText}
+                            onChange={(e) => setSearchText(e.target.value)}
+                            placeholder={`Enter exact ${SEARCH_FIELDS.find(f => f.key === searchField)?.label}...`}
+                            className="block w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none shadow-inner"
+                        />
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                             </svg>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 mb-0.5">
+                    <button 
+                        type="submit"
+                        disabled={loading || !searchText}
+                        className="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium shadow-md transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Search
+                    </button>
+                    
+                    {searchMode && (
+                        <button 
+                            type="button"
+                            onClick={clearSearch}
+                            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-medium transition-colors"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </div>
+            </div>
+            
+            {!searchMode && (
+                <div className="hidden md:block text-xs text-slate-400 font-medium">
+                    Showing latest orders
+                </div>
             )}
-          </button>
-          
-          {isFilterOpen && (
-            <>
-              <div className="fixed inset-0 z-10 cursor-default" onClick={() => setIsFilterOpen(false)}></div>
-              <div className="absolute right-0 mt-2 w-64 rounded-xl shadow-card bg-white ring-1 ring-black ring-opacity-5 z-20 overflow-hidden animate-fade-in-up">
-                <div className="p-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter by Status</span>
-                    <button onClick={() => { setStatusFilters([]); setIsFilterOpen(false); }} className="text-xs text-brand-600 hover:underline">Clear all</button>
-                </div>
-                <div className="py-2" role="menu">
-                  {STATUS_OPTIONS.map(option => (
-                    <label key={option} className="flex items-center px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={statusFilters.includes(option)}
-                        onChange={() => toggleStatusFilter(option)}
-                        className="h-4 w-4 text-brand-600 focus:ring-brand-500 border-slate-300 rounded transition duration-150 ease-in-out"
-                      />
-                      <span className="ml-3 text-sm text-slate-700 font-medium">{option}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        </form>
       </div>
 
-      {/* Main Table Card */}
-      <div className="bg-white rounded-xl shadow-card border border-slate-100 overflow-hidden flex flex-col h-[calc(100vh-280px)]">
+      {/* 2. Data Table */}
+      <div className="bg-white rounded-xl shadow-card border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-auto relative scrollbar-thin">
-          <table className="min-w-full divide-y divide-slate-100">
+          <table className="min-w-full table-fixed divide-y divide-slate-100">
+            {/* Optimized Column Widths */}
+            <colgroup>
+              <col className="w-28" /> {/* Order # */}
+              <col className="w-28" /> {/* Sales Doc */}
+              <col className="w-28" /> {/* Date */}
+              <col className="w-24" /> {/* Batch */}
+              <col className="w-16" /> {/* Year */}
+              <col className="w-96" /> {/* Material - Wide */}
+              <col className="w-40" /> {/* Club */}
+              <col className="w-24" /> {/* Type */}
+              <col className="w-32" /> {/* Status */}
+              <col className="w-24" /> {/* CDD */}
+              <col className="w-40" /> {/* UPS */}
+              {isAdmin && <col className="w-20" />} {/* Action */}
+            </colgroup>
+            
             <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <tr>
-                {['Order #', 'Sales Doc', 'Order Date', 'Batch', 'Year', 'Material', 'Club', 'Type', 'Status', 'CDD', 'UPS Tracking'].map(head => (
-                  <th key={head} className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">
-                    {head}
-                  </th>
+                {['Order #', 'Sales Doc', 'Date', 'Batch', 'Year', 'Material', 'Club', 'Type', 'Status', 'CDD', 'Tracking'].map(h => (
+                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider truncate border-b border-slate-200">
+                        {h}
+                    </th>
                 ))}
+                {isAdmin && <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">Action</th>}
               </tr>
             </thead>
+            
             <tbody className="bg-white divide-y divide-slate-50">
-              {loading && orders.length === 0 ? (
-                 <tr><td colSpan={11} className="text-center py-20 text-slate-400">Loading order data...</td></tr>
-              ) : filteredOrders.length === 0 ? (
-                 <tr><td colSpan={11} className="text-center py-20 text-slate-400">No orders found matching your criteria.</td></tr>
+              {error ? (
+                 <tr>
+                    <td colSpan={isAdmin ? 12 : 11} className="px-6 py-12 text-center">
+                      <div className="inline-flex flex-col items-center p-4 rounded-lg bg-red-50 text-red-700 border border-red-100 max-w-md mx-auto">
+                         <div className="flex items-center font-bold mb-2">
+                           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                           Database Error
+                         </div>
+                         <span className="text-sm">{error}</span>
+                      </div>
+                    </td>
+                 </tr>
+              ) : loading ? (
+                 <tr><td colSpan={isAdmin ? 12 : 11} className="text-center py-20 text-slate-400">
+                    <div className="flex justify-center items-center gap-2">
+                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    </div>
+                 </td></tr>
+              ) : orders.length === 0 ? (
+                 <tr>
+                   <td colSpan={isAdmin ? 12 : 11} className="text-center py-20 text-slate-400">
+                     {searchMode 
+                        ? `No exact matches found for "${activeSearch?.text}".` 
+                        : "No orders found."}
+                   </td>
+                 </tr>
               ) : (
-                filteredOrders.map((order) => {
-                  const status = order.Status?.toLowerCase() || '';
-                  let statusColor = 'bg-slate-100 text-slate-600';
-                  if (status.includes('shipped')) statusColor = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20';
-                  else if (status.includes('canceled')) statusColor = 'bg-rose-100 text-rose-700 ring-1 ring-rose-600/20';
-                  else if (status.includes('duplicate')) statusColor = 'bg-orange-100 text-orange-700 ring-1 ring-orange-600/20';
-                  else if (status.includes('pa')) statusColor = 'bg-violet-100 text-violet-700 ring-1 ring-violet-600/20';
+                orders.map((order) => {
+                  const status = (order.Status || '').toLowerCase();
+                  let statusColor = 'bg-slate-100 text-slate-600 border border-slate-200';
+                  if (status.includes('shipped')) statusColor = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+                  else if (status.includes('canceled')) statusColor = 'bg-rose-50 text-rose-700 border border-rose-200';
+                  else if (status.includes('duplicate')) statusColor = 'bg-orange-50 text-orange-700 border border-orange-200';
+                  else if (status.includes('pa')) statusColor = 'bg-indigo-50 text-indigo-700 border border-indigo-200';
 
                   return (
-                    <tr key={order.Code} className="hover:bg-slate-50 transition-colors duration-150 group">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-slate-800 group-hover:text-brand-600">{order.OrderNumber}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.SalesDocument}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.OrderDate}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.BatchNumber}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.Year}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600" title={order.Material}>
-                        <div className="max-w-[150px] truncate">{order.Material}</div>
+                    <tr key={order.Code} className="hover:bg-slate-50 transition-colors duration-150 group text-sm">
+                      <td className="px-3 py-3 text-slate-900 font-medium truncate" title={String(order.OrderNumber)}>
+                        {order.OrderNumber}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.ClubName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{order.OrderType}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor}`}>
+                      <td className="px-3 py-3 text-slate-600 truncate" title={String(order.SalesDocument)}>
+                        {order.SalesDocument}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap truncate">
+                        {order.OrderDate}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 truncate">
+                        {order.BatchNumber}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 truncate">
+                        {order.Year}
+                      </td>
+                      
+                      {/* Material Column: Priority Visibility */}
+                      <td className="px-3 py-3">
+                        <div className="relative group cursor-help">
+                           <span className="truncate block w-full text-slate-700 font-medium">
+                             {order["Material Number"]}
+                           </span>
+                           {/* Custom Tooltip */}
+                           <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg pointer-events-none">
+                              {order["Material Number"]}
+                              <div className="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-slate-800"></div>
+                           </div>
+                        </div>
+                      </td>
+                      
+                      <td className="px-3 py-3 text-slate-600 truncate" title={order.ClubName}>
+                        {order.ClubName}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 truncate">
+                        {order.OrderType}
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`px-2 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full truncate max-w-full justify-center ${statusColor}`}>
                           {order.Status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.CDD}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono text-xs">{order.UPSTrackingNumber}</td>
+                      <td className="px-3 py-3 text-slate-600 truncate">
+                        {order.CDD}
+                      </td>
+                      <td className="px-3 py-3 text-slate-500 font-mono text-xs truncate" title={order.UPSTrackingNumber}>
+                        {order.UPSTrackingNumber}
+                      </td>
+                      
+                      {isAdmin && (
+                        <td className="px-3 py-3 text-center">
+                          <button 
+                            onClick={() => onEdit(order.Code)}
+                            className="text-brand-600 hover:text-brand-800 font-medium hover:underline focus:outline-none text-xs"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   )
                 })
               )}
             </tbody>
           </table>
-          
-          {!noMoreData && !loading && filteredOrders.length > 0 && (
-            <div className="p-4 flex justify-center bg-white border-t border-slate-100">
-              <button 
-                onClick={loadMore}
-                className="text-sm font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-6 py-2 rounded-full transition-colors"
-              >
-                Load older records
-              </button>
-            </div>
-          )}
         </div>
-      </div>
 
-      {/* Upload Footer (Admin Only) */}
-      {userProfile?.role === 'admin' && (
-        <div 
-          className={`relative group rounded-xl border-2 border-dashed p-8 transition-all duration-300 ease-in-out ${uploading ? 'bg-slate-50 border-slate-300' : 'bg-white border-slate-300 hover:border-brand-400 hover:bg-brand-50/30'}`}
-          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500'); }}
-          onDragLeave={(e) => { e.currentTarget.classList.remove('border-brand-500'); }}
-          onDrop={(e) => { e.currentTarget.classList.remove('border-brand-500'); handleFileDrop(e); }}
-        >
-          <div className="flex flex-col items-center justify-center text-center">
-            <div className={`p-4 rounded-full mb-3 transition-colors ${uploading ? 'bg-slate-200' : 'bg-brand-50 text-brand-500 group-hover:bg-brand-100 group-hover:scale-110'}`}>
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
+        {/* 3. Pagination Controls */}
+        {!error && orders.length > 0 && (
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+               
+               <div className="text-xs text-slate-500 font-medium">
+                 {searchMode ? 'Search Results' : 'Sorting by Newest Date'} • Page {currentPage}
+               </div>
+
+               <div className="flex items-center gap-2">
+                 <button
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1 || loading}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                 >
+                    Previous
+                 </button>
+
+                 <div className="flex items-center gap-1 px-2">
+                    {renderPaginationNumbers()}
+                 </div>
+
+                 <button
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={!hasNextPage || loading}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                 >
+                    Next
+                 </button>
+               </div>
             </div>
-            <h3 className="text-lg font-semibold text-slate-900">
-              {uploading ? 'Processing Data...' : 'Upload Reconciliation File'}
-            </h3>
-            <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-              Drag and drop your Excel file here, or click to browse. Supports .xlsx and .xls formats.
-            </p>
-            <input 
-              type="file" 
-              accept=".xlsx, .xls"
-              className="hidden" 
-              ref={fileInputRef}
-              onChange={(e) => e.target.files && processFile(e.target.files[0])}
-            />
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="mt-4 px-6 py-2 bg-white border border-slate-300 rounded-lg shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 transition-all"
-            >
-              Select File
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

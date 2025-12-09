@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { Login } from './pages/Login';
 import { Reconciliation } from './pages/Reconciliation';
 import { UserManagement } from './pages/UserManagement';
+import { EditOrder } from './pages/EditOrder';
 import { AppRoute } from './types';
 
 const PlaceholderPage: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
@@ -23,6 +24,7 @@ const PlaceholderPage: React.FC<{ title: string; subtitle: string }> = ({ title,
 const App: React.FC = () => {
   const { user, userProfile, loading, logout } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.RECONCILIATION);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   if (loading) {
@@ -44,6 +46,16 @@ const App: React.FC = () => {
     { id: AppRoute.ORDER_CLOSING, label: 'Order Closing' },
   ];
 
+  const handleEditOrder = (orderId: string) => {
+    setEditingOrderId(orderId);
+    setCurrentRoute(AppRoute.EDIT_ORDER);
+  };
+
+  const handleBackToReconciliation = () => {
+    setEditingOrderId(null);
+    setCurrentRoute(AppRoute.RECONCILIATION);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
       
@@ -56,9 +68,9 @@ const App: React.FC = () => {
             <div className="flex items-center">
               <div className="flex-shrink-0 flex items-center gap-2 mr-8">
                 <div className="h-8 w-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-brand-500/20">
-                  S
+                  O
                 </div>
-                <span className="font-bold text-xl text-white tracking-tight">SAP Tracker</span>
+                <span className="font-bold text-xl text-white tracking-tight">Order Management</span>
               </div>
               <div className="hidden md:flex md:space-x-1">
                 {navItems.map(item => (
@@ -188,7 +200,8 @@ const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-fade-in-up">
-            {currentRoute === AppRoute.RECONCILIATION && <Reconciliation />}
+            {currentRoute === AppRoute.RECONCILIATION && <Reconciliation onEdit={handleEditOrder} />}
+            {currentRoute === AppRoute.EDIT_ORDER && editingOrderId && <EditOrder orderId={editingOrderId} onBack={handleBackToReconciliation} />}
             {currentRoute === AppRoute.CLUB_ORDER && <PlaceholderPage title="Club Order Management" subtitle="Manage club-specific orders and track their fulfillment status efficiently." />}
             {currentRoute === AppRoute.GOOD_RECEIVE && <PlaceholderPage title="Goods Receive" subtitle="Track incoming inventory, verify shipments, and update stock levels." />}
             {currentRoute === AppRoute.ORDER_CLOSING && <PlaceholderPage title="Order Closing" subtitle="Finalize transactions, generate invoices, and archive completed orders." />}

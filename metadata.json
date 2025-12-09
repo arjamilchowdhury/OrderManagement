@@ -1,5 +1,5 @@
 {
-  "name": "SAP Tracker - Order Management",
+  "name": "Order Management",
   "description": "A comprehensive order management dashboard featuring reconciliation, role-based access control, and large dataset handling with Firebase.",
   "requestFramePermissions": []
 }

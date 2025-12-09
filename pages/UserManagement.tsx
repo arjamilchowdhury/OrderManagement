@@ -3,7 +3,7 @@ import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, set, get, remove } from 'firebase/database';
 import { auth, db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { UserProfile } from '../types';
+import type { UserProfile } from '../types';
 
 export const UserManagement: React.FC = () => {
   const { userProfile } = useAuth();
