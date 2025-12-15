@@ -5,7 +5,7 @@ import { getDatabase } from "firebase/database";
 // Cast import.meta to any to access env properties without missing type definitions
 const env = (import.meta as any).env;
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: env?.VITE_FIREBASE_API_KEY || "AIzaSyASupJlog6NfalUgW05WxUY08kuH6ZFJPg",
   authDomain: env?.VITE_FIREBASE_AUTH_DOMAIN || "sap-tracker-5576b.firebaseapp.com",
   // CRITICAL FIX: explicit databaseURL is required for custom domains

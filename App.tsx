@@ -42,7 +42,7 @@ const App: React.FC = () => {
   const navItems = [
     { id: AppRoute.RECONCILIATION, label: 'Reconciliation' },
     { id: AppRoute.CLUB_ORDER, label: 'Club Order' },
-    { id: AppRoute.GOOD_RECEIVE, label: 'Good Receive' },
+    { id: AppRoute.GOOD_RECEIVE, label: 'Good Received' },
     { id: AppRoute.ORDER_CLOSING, label: 'Order Closing' },
   ];
 
@@ -104,8 +104,14 @@ const App: React.FC = () => {
 
                <div className="flex items-center gap-3">
                  <div className="flex flex-col items-end">
-                   <span className="text-sm font-medium text-white">{userProfile?.name}</span>
-                   <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">{userProfile?.role}</span>
+                   <span className="text-sm font-medium text-white leading-tight">{userProfile?.name}</span>
+                   <span className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
+                       userProfile?.role === 'admin' 
+                         ? 'bg-purple-900/50 text-purple-200 border-purple-700/50' 
+                         : 'bg-slate-800 text-slate-300 border-slate-700'
+                   }`}>
+                       {userProfile?.role}
+                   </span>
                  </div>
                  <div className="h-8 w-8 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-xs text-white font-bold">
                     {userProfile?.name?.charAt(0) || 'U'}
@@ -180,7 +186,16 @@ const App: React.FC = () => {
                   </div>
                 </div>
                 <div className="ml-3">
-                  <div className="text-base font-medium leading-none text-white">{userProfile?.name}</div>
+                  <div className="flex items-center gap-2">
+                      <div className="text-base font-medium leading-none text-white">{userProfile?.name}</div>
+                      <span className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${
+                         userProfile?.role === 'admin' 
+                           ? 'bg-purple-900/50 text-purple-200 border-purple-700/50' 
+                           : 'bg-slate-800 text-slate-300 border-slate-700'
+                       }`}>
+                         {userProfile?.role}
+                      </span>
+                  </div>
                   <div className="text-sm font-medium leading-none text-slate-400 mt-1">{userProfile?.email}</div>
                 </div>
                 <button 
@@ -203,7 +218,7 @@ const App: React.FC = () => {
             {currentRoute === AppRoute.RECONCILIATION && <Reconciliation onEdit={handleEditOrder} />}
             {currentRoute === AppRoute.EDIT_ORDER && editingOrderId && <EditOrder orderId={editingOrderId} onBack={handleBackToReconciliation} />}
             {currentRoute === AppRoute.CLUB_ORDER && <PlaceholderPage title="Club Order Management" subtitle="Manage club-specific orders and track their fulfillment status efficiently." />}
-            {currentRoute === AppRoute.GOOD_RECEIVE && <PlaceholderPage title="Goods Receive" subtitle="Track incoming inventory, verify shipments, and update stock levels." />}
+            {currentRoute === AppRoute.GOOD_RECEIVE && <PlaceholderPage title="Goods Received" subtitle="Track incoming inventory, verify shipments, and update stock levels." />}
             {currentRoute === AppRoute.ORDER_CLOSING && <PlaceholderPage title="Order Closing" subtitle="Finalize transactions, generate invoices, and archive completed orders." />}
             {currentRoute === AppRoute.USERS && <UserManagement />}
         </div>

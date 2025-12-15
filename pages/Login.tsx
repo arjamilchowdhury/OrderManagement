@@ -53,7 +53,7 @@ export const Login: React.FC = () => {
             </svg>
           </div>
           <h2 className="text-3xl font-bold text-slate-900">Welcome Back</h2>
-          <p className="mt-2 text-sm text-slate-500">Sign in to SAP Tracker Dashboard</p>
+          <p className="mt-2 text-sm text-slate-500">Sign in to Order Management Dashboard</p>
         </div>
 
         <div className="px-8 pb-10">

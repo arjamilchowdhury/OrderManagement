@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, set, get, remove } from 'firebase/database';
-import { auth, db } from '../services/firebase';
+import { db, firebaseConfig } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import type { UserProfile } from '../types';
 
@@ -56,34 +57,52 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     if (userProfile?.role !== 'admin') return;
 
-    if (!window.confirm("Action Required: This will momentarily sign you out to initialize the new user account. You will need to log back in as Admin.")) {
-        return;
-    }
-
+    // Use a secondary app to create the user so we don't log out the current admin
     setLoading(true);
     setStatus({ type: 'info', msg: 'Creating user...' });
+    
+    let secondaryApp: any = null;
 
     try {
-      // 1. Create Auth User
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      // 1. Initialize secondary app
+      secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+      const secondaryAuth = getAuth(secondaryApp);
+
+      // 2. Create Auth User in secondary app
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
       const newUid = userCredential.user.uid;
 
-      // 2. Create DB Record
+      // 3. Create DB Record using MAIN app (authenticated as admin)
+      // This works because the main 'db' instance still holds the Admin's auth token
       await set(ref(db, `users/${newUid}`), {
         name: formData.name,
         email: formData.email,
         role: formData.role
       });
 
-      // 3. Sign out (auth flow requirement for client-side creation)
-      await signOut(auth);
+      // 4. Sign out from secondary app to be clean
+      await signOut(secondaryAuth);
 
-      setStatus({ type: 'success', msg: `User ${formData.email} created successfully. Redirecting...` });
+      setStatus({ type: 'success', msg: `User ${formData.email} created successfully.` });
       setFormData({ name: '', email: '', password: '', role: 'view' });
+      
+      // Refresh the list
+      await fetchUsers();
+
     } catch (err: any) {
       console.error(err);
-      setStatus({ type: 'error', msg: err.message || 'Failed to create user.' });
-      setLoading(false); // Only stop loading on error, otherwise we are redirecting/logging out
+      // Handle "email already in use" specifically if needed
+      if (err.code === 'auth/email-already-in-use') {
+        setStatus({ type: 'error', msg: 'This email is already registered.' });
+      } else {
+        setStatus({ type: 'error', msg: err.message || 'Failed to create user.' });
+      }
+    } finally {
+      // 5. Cleanup secondary app
+      if (secondaryApp) {
+        await deleteApp(secondaryApp);
+      }
+      setLoading(false);
     }
   };
 
@@ -153,7 +172,7 @@ export const UserManagement: React.FC = () => {
                   type="email"
                   name="email"
                   required
-                  placeholder="john@example.com"
+                  placeholder="jamil@example.com"
                   className="block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all"
                   value={formData.email}
                   onChange={handleChange}
@@ -204,9 +223,6 @@ export const UserManagement: React.FC = () => {
                 )}
                 {loading ? 'Creating Account...' : 'Create User Account'}
               </button>
-              <p className="mt-3 text-xs text-slate-400">
-                Note: Creating a user will momentarily sign out the current admin session.
-              </p>
             </div>
           </form>
         </div>
@@ -260,10 +276,10 @@ export const UserManagement: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{user.email}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        <span className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-bold rounded-full border ${
                           isAdmin 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-slate-100 text-slate-800'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200' 
+                            : 'bg-slate-50 text-slate-600 border-slate-200'
                         }`}>
                           {user.role.toUpperCase()}
                         </span>
