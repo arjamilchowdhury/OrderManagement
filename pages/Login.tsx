@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { useAuth } from '../context/AuthContext';
 
 export const Login: React.FC = () => {
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -14,7 +14,7 @@ export const Login: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await login(email, password);
     } catch (err: any) {
       setError('Invalid email or password.');
       console.error(err);
@@ -24,17 +24,7 @@ export const Login: React.FC = () => {
   };
 
   const handleReset = async () => {
-    if (!email) {
-      setError('Please enter your email address first.');
-      return;
-    }
-    try {
-      await sendPasswordResetEmail(auth, email);
-      setMsg('Password reset link sent to your email.');
-      setError('');
-    } catch (err) {
-      setError('Failed to send reset email. Verify the address.');
-    }
+    setError('Password reset is currently disabled.');
   };
 
   return (

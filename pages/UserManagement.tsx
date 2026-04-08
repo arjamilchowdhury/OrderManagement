@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { ref, set, get, remove } from 'firebase/database';
-import { db, firebaseConfig } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../src/services/api';
 import type { UserProfile } from '../types';
 
 export const UserManagement: React.FC = () => {
@@ -31,17 +28,8 @@ export const UserManagement: React.FC = () => {
   const fetchUsers = async () => {
     setFetchingUsers(true);
     try {
-      const snapshot = await get(ref(db, 'users'));
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const list: UserProfile[] = Object.keys(data).map(key => ({
-          uid: key,
-          ...data[key]
-        }));
-        setUserList(list);
-      } else {
-        setUserList([]);
-      }
+      const list = await api.getUsers();
+      setUserList(list);
     } catch (error) {
       console.error("Error fetching users:", error);
     } finally {
@@ -57,31 +45,19 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     if (userProfile?.role !== 'admin') return;
 
-    // Use a secondary app to create the user so we don't log out the current admin
     setLoading(true);
     setStatus({ type: 'info', msg: 'Creating user...' });
     
-    let secondaryApp: any = null;
-
     try {
-      // 1. Initialize secondary app
-      secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-      const secondaryAuth = getAuth(secondaryApp);
-
-      // 2. Create Auth User in secondary app
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
-      const newUid = userCredential.user.uid;
-
-      // 3. Create DB Record using MAIN app (authenticated as admin)
-      // This works because the main 'db' instance still holds the Admin's auth token
-      await set(ref(db, `users/${newUid}`), {
+      // In our mock backend, we just save the user profile
+      // In a real app, you'd have a specific create endpoint that handles auth too
+      const newUid = `user_${Date.now()}`;
+      await api.saveUserProfile({
+        uid: newUid,
         name: formData.name,
         email: formData.email,
         role: formData.role
       });
-
-      // 4. Sign out from secondary app to be clean
-      await signOut(secondaryAuth);
 
       setStatus({ type: 'success', msg: `User ${formData.email} created successfully.` });
       setFormData({ name: '', email: '', password: '', role: 'view' });
@@ -91,17 +67,8 @@ export const UserManagement: React.FC = () => {
 
     } catch (err: any) {
       console.error(err);
-      // Handle "email already in use" specifically if needed
-      if (err.code === 'auth/email-already-in-use') {
-        setStatus({ type: 'error', msg: 'This email is already registered.' });
-      } else {
-        setStatus({ type: 'error', msg: err.message || 'Failed to create user.' });
-      }
+      setStatus({ type: 'error', msg: err.message || 'Failed to create user.' });
     } finally {
-      // 5. Cleanup secondary app
-      if (secondaryApp) {
-        await deleteApp(secondaryApp);
-      }
       setLoading(false);
     }
   };
@@ -117,7 +84,7 @@ export const UserManagement: React.FC = () => {
     }
 
     try {
-      await remove(ref(db, `users/${targetUid}`));
+      await api.deleteUser(targetUid);
       // Optimistically update UI
       setUserList(prev => prev.filter(u => u.uid !== targetUid));
       alert("User profile deleted successfully.");

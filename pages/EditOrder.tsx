@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '../services/firebase';
-import { ref, get, update } from 'firebase/database';
+import { api } from '../src/services/api';
 import type { OrderRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 
@@ -42,12 +41,8 @@ export const EditOrder: React.FC<EditOrderProps> = ({ orderId, onBack }) => {
       setLoading(true);
       setError('');
       try {
-        const snapshot = await get(ref(db, `order_management/master_recon_file/${orderId}`));
-        if (snapshot.exists()) {
-          setFormData(snapshot.val());
-        } else {
-          setError('Order not found.');
-        }
+        const data = await api.getOrder(orderId);
+        setFormData(data);
       } catch (err) {
         console.error("Error fetching order:", err);
         setError('Failed to fetch order details.');
@@ -72,7 +67,7 @@ export const EditOrder: React.FC<EditOrderProps> = ({ orderId, onBack }) => {
   const handleUpdate = async () => {
     setSaving(true);
     try {
-      await update(ref(db, `order_management/master_recon_file/${orderId}`), formData);
+      await api.updateOrder(orderId, formData);
       onBack();
     } catch (err) {
       console.error("Error updating order:", err);

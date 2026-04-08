@@ -1,13 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get, child } from 'firebase/database';
-import { auth, db } from '../services/firebase';
-import type { UserProfile } from '../types';
+import { api } from '../src/services/api';
+import type { User, UserProfile } from '../types';
 
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  login: (email: string, password?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -16,6 +15,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   userProfile: null,
   loading: true,
+  login: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
 });
@@ -29,21 +29,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserProfile = async (uid: string) => {
     try {
-      const snapshot = await get(child(ref(db), `users/${uid}`));
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setUserProfile({
-          uid,
-          ...data
-        });
+      const profile = await api.getUserProfile(uid);
+      if (!profile) {
+        // User profile not found, maybe deleted. Log out.
+        setUser(null);
+        setUserProfile(null);
+        localStorage.removeItem('user');
       } else {
-        // Fallback for users without a profile record (assume view)
-        setUserProfile({
-          uid,
-          email: auth.currentUser?.email || '',
-          name: auth.currentUser?.displayName || 'User',
-          role: 'view'
-        });
+        setUserProfile(profile);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -52,23 +45,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setLoading(true);
-      if (currentUser) {
-        setUser(currentUser);
-        await fetchUserProfile(currentUser.uid);
-      } else {
-        setUser(null);
-        setUserProfile(null);
-      }
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      fetchUserProfile(parsedUser.uid).finally(() => setLoading(false));
+    } else {
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
   }, []);
 
+  const login = async (email: string, password?: string) => {
+    setLoading(true);
+    try {
+      const { user: profile } = await api.login(email, password);
+      const userObj: User = { uid: profile.uid, email: profile.email, displayName: profile.name };
+      setUser(userObj);
+      setUserProfile(profile);
+      localStorage.setItem('user', JSON.stringify(userObj));
+    } catch (error) {
+      console.error("Login failed:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
-    await signOut(auth);
+    setUser(null);
+    setUserProfile(null);
+    localStorage.removeItem('user');
   };
 
   const refreshProfile = async () => {
@@ -78,7 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, logout, refreshProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, login, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,9 +1,12 @@
+
 import React, { useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Login } from './pages/Login';
 import { Reconciliation } from './pages/Reconciliation';
 import { UserManagement } from './pages/UserManagement';
 import { EditOrder } from './pages/EditOrder';
+import { ClubOrder } from './pages/ClubOrder';
+import { Shipment } from './pages/Shipment';
 import { AppRoute } from './types';
 
 const PlaceholderPage: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
@@ -42,6 +45,7 @@ const App: React.FC = () => {
   const navItems = [
     { id: AppRoute.RECONCILIATION, label: 'Reconciliation' },
     { id: AppRoute.CLUB_ORDER, label: 'Club Order' },
+    { id: AppRoute.SHIPMENT, label: 'Shipment' },
     { id: AppRoute.GOOD_RECEIVE, label: 'Good Received' },
     { id: AppRoute.ORDER_CLOSING, label: 'Order Closing' },
   ];
@@ -100,7 +104,7 @@ const App: React.FC = () => {
                  </button>
                )}
                
-               <div className="h-8 w-px bg-slate-700"></div>
+               <div className="h-8 w-px bg-slate-700"> </div>
 
                <div className="flex items-center gap-3">
                  <div className="flex flex-col items-end">
@@ -217,7 +221,8 @@ const App: React.FC = () => {
         <div className="animate-fade-in-up">
             {currentRoute === AppRoute.RECONCILIATION && <Reconciliation onEdit={handleEditOrder} />}
             {currentRoute === AppRoute.EDIT_ORDER && editingOrderId && <EditOrder orderId={editingOrderId} onBack={handleBackToReconciliation} />}
-            {currentRoute === AppRoute.CLUB_ORDER && <PlaceholderPage title="Club Order Management" subtitle="Manage club-specific orders and track their fulfillment status efficiently." />}
+            {currentRoute === AppRoute.CLUB_ORDER && <ClubOrder />}
+            {currentRoute === AppRoute.SHIPMENT && <Shipment />}
             {currentRoute === AppRoute.GOOD_RECEIVE && <PlaceholderPage title="Goods Received" subtitle="Track incoming inventory, verify shipments, and update stock levels." />}
             {currentRoute === AppRoute.ORDER_CLOSING && <PlaceholderPage title="Order Closing" subtitle="Finalize transactions, generate invoices, and archive completed orders." />}
             {currentRoute === AppRoute.USERS && <UserManagement />}
