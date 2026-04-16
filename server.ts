@@ -1,14 +1,9 @@
 import express from 'express';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 import multer from 'multer';
 import * as xlsx from 'xlsx';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import path from 'path';
 
 const app = express();
 const PORT = 3000;
@@ -529,6 +524,8 @@ async function startServer() {
   await connectMongo();
 
   if (process.env.NODE_ENV !== 'production') {
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(viteModuleName);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
