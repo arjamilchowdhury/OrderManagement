@@ -523,6 +523,8 @@ app.get('/api/club-order/latest', async (req, res) => {
   }
 });
 
+export { app, connectMongo };
+
 async function startServer() {
   await connectMongo();
 
@@ -545,4 +547,7 @@ async function startServer() {
   });
 }
 
-startServer();
+// Only start the server if we are not in a serverless environment
+if (!process.env.NETLIFY_FUNCTIONS) {
+  startServer();
+}

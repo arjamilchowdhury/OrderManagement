@@ -52,7 +52,7 @@ export const ClubOrder: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/users`);
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -64,7 +64,7 @@ export const ClubOrder: React.FC = () => {
 
   const fetchLatestClubOrder = async () => {
     try {
-      const res = await fetch('/api/club-order/latest');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/club-order/latest`);
       if (res.ok) {
         const data: any = await res.json();
         if (data) {
@@ -142,7 +142,7 @@ export const ClubOrder: React.FC = () => {
     });
 
     try {
-      const res = await fetch('/api/club-order/upload', {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/club-order/upload`, {
         method: 'POST',
         body: formData
       });
@@ -170,7 +170,7 @@ export const ClubOrder: React.FC = () => {
     if (!uploadResult?.clubOrderId) return;
     
     try {
-      const res = await fetch('/api/club-order/update-assignment', {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/club-order/update-assignment`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
