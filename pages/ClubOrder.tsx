@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import * as xlsx from 'xlsx';
 
 interface DuplicateOrder {
   orderId: string;
@@ -135,19 +136,44 @@ export const ClubOrder: React.FC = () => {
     }
 
     setIsUploading(true);
-    const formData = new FormData();
-    formData.append('batchNumber', batchNumber);
-    files.forEach(file => {
-      formData.append('files', file);
-    });
 
     try {
+      // Parse files locally before sending to bypass multipart/form-data issues on Netlify
+      const parsedFiles = [];
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        const workbook = xlsx.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = xlsx.utils.sheet_to_json(sheet);
+        
+        parsedFiles.push({
+          fileName: file.name,
+          data: rows
+        });
+      }
+
       const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/club-order/upload`, {
         method: 'POST',
-        body: formData
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          batchNumber,
+          files: parsedFiles
+        })
       });
       
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        if (!res.ok) {
+          throw new Error(`Server returned ${res.status} ${res.statusText}`);
+        }
+        throw new Error('Invalid JSON response from server');
+      }
+
       if (res.ok) {
         setUploadResult(data);
         setFiles([]);
@@ -156,11 +182,11 @@ export const ClubOrder: React.FC = () => {
           setShowDuplicatesModal(true);
         }
       } else {
-        alert(data.error || 'Upload failed');
+        alert(data.error || `Upload failed: ${res.statusText}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error', error);
-      alert('An error occurred during upload.');
+      alert(`An error occurred during upload: ${error.message || 'Network or server error'}`);
     } finally {
       setIsUploading(false);
     }
@@ -311,7 +337,7 @@ export const ClubOrder: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {Object.entries(uploadResult.files).map(([fileName, data]: [string, any]) => (
                     <tr key={fileName} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 text-sm font-medium text-slate-800">{fileName}</td>
+                      <td className="p-4 text-sm font-medium text-slate-800">{data.originalName || fileName.replace(/_DOT_/g, '.')}</td>
                       <td className="p-4 text-sm text-slate-600">{data.totalOrder}</td>
                       <td className="p-4 text-sm text-slate-600">{data.totalQty}</td>
                       <td className="p-4">

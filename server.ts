@@ -327,16 +327,15 @@ app.post('/api/auth/login', async (req, res) => {
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-app.post('/api/club-order/upload', upload.array('files'), async (req, res) => {
+app.post('/api/club-order/upload', async (req, res) => {
   try {
-    const batchNumber = req.body.batchNumber;
+    const { batchNumber, files } = req.body;
     if (!batchNumber) {
       return res.status(400).json({ error: 'Batch number is required' });
     }
 
-    const files = req.files as Express.Multer.File[];
-    if (!files || files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'No files provided' });
     }
 
     const duplicates: any[] = [];
@@ -349,15 +348,11 @@ app.post('/api/club-order/upload', upload.array('files'), async (req, res) => {
     let totalMultipleSportsOrders = 0;
 
     for (const file of files) {
-      const fileName = file.originalname;
+      const fileName = file.fileName;
+      const data = file.data;
       if (fileName.toLowerCase().startsWith('combined')) {
         continue; // Ignore files starting with "combined"
       }
-
-      const workbook = xlsx.read(file.buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const data = xlsx.utils.sheet_to_json(sheet);
 
       let fileTotalOrder = 0;
       let fileTotalQty = 0;
@@ -432,10 +427,14 @@ app.post('/api/club-order/upload', upload.array('files'), async (req, res) => {
           if (isMultipleSports) totalMultipleSportsOrders++;
         }
       }
+      
+      // Sanitize filename to avoid MongoDB dot-in-key errors
+      const safeFileName = fileName.replace(/\./g, '_DOT_');
 
       // Only add file if it had orders
       if (fileTotalOrder > 0 || fileOrderIds.size > 0) {
-        clubOrderFiles[fileName] = {
+        clubOrderFiles[safeFileName] = {
+          originalName: fileName,
           orderIds: Array.from(fileOrderIds),
           totalOrder: fileTotalOrder,
           totalQty: fileTotalQty,
@@ -485,20 +484,19 @@ app.post('/api/club-order/upload', upload.array('files'), async (req, res) => {
       files: clubOrderFiles
     });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to process upload' });
+  } catch (error: any) {
+    console.error('Error in /api/club-order/upload:', error);
+    res.status(500).json({ error: 'Failed to process upload: ' + (error.message || 'Unknown error') });
   }
 });
 
 app.put('/api/club-order/update-assignment', async (req, res) => {
   try {
     const { clubOrderId, fileName, assigned } = req.body;
-    // We need to escape the dot in the filename if it was saved that way, 
-    // but in our code above we saved it with the raw filename. 
-    // MongoDB allows dots in keys in newer versions, but if it fails, we should handle it.
-    // Assuming raw filename is fine.
-    const updatePath = `files.${fileName}.assigned`;
+    // The fileName might be passed from the frontend as the raw name or the sanitized one.
+    // Sanitize it just in case to match how we saved it.
+    const safeFileName = fileName.replace(/\./g, '_DOT_');
+    const updatePath = `files.${safeFileName}.assigned`;
     await db.collection('club_order').updateOne(
       { _id: new ObjectId(clubOrderId) },
       { $set: { [updatePath]: assigned } }

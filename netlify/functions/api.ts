@@ -10,8 +10,10 @@ const handler = async (event: any, context: any) => {
     isConnected = true;
   }
   
-  // Wrap the express app
-  const serverlessHandler = serverless(app);
+  // Wrap the express app with the correct basePath so Netlify routes work
+  const serverlessHandler = serverless(app, {
+    basePath: '/.netlify/functions'
+  });
   return serverlessHandler(event, context);
 };
 
