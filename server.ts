@@ -102,6 +102,7 @@ app.put('/api/orders/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const update = req.body;
+    delete update._id; // Prevent MongoDB error: Mod on _id not allowed
     const result = await db.collection('orders_management').updateOne({ _id: id as any }, { $set: update });
     res.json(result);
   } catch (error) {
@@ -133,6 +134,7 @@ app.patch('/api/orders/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const update = req.body;
+    delete update._id; // Prevent MongoDB error: Mod on _id not allowed
     let query: any = {};
     try {
       query = { _id: new ObjectId(id) };
@@ -356,55 +358,78 @@ app.post('/api/club-order/upload', async (req, res) => {
     const duplicates: any[] = [];
     const nonDuplicates: any[] = [];
     const clubOrderFiles: any = {};
-    let totalOrder = 0;
-    let totalQty = 0;
-    let totalRushOrders = 0;
-    let totalMTOOrders = 0;
-    let totalMultipleSportsOrders = 0;
+    
+    const docOrderIds = new Set<string>();
+    const docRushOrderIds = new Set<string>();
+    const docMTOOrderIds = new Set<string>();
+    const docMultipleSportsOrderIds = new Set<string>();
+    let docTotalQty = 0;
 
     for (const file of files) {
       const fileName = file.fileName;
       const data = file.data;
       if (fileName.toLowerCase().startsWith('combined')) {
-        continue; // Ignore files starting with "combined"
+        continue;
       }
 
-      let fileTotalOrder = 0;
-      let fileTotalQty = 0;
       const fileOrderIds = new Set<string>();
+      let fileTotalQty = 0;
       const fileMaterials = new Set<string>();
       const fileSalesDocs = new Set<string>();
 
-      const isRush = fileName.toLowerCase().includes('rush rs') || fileName.toLowerCase().includes('rush rsa');
-      const isMultipleSports = fileName.toLowerCase().includes('volleyball') || fileName.toLowerCase().includes('basketball') || fileName.toLowerCase().includes('hokey');
+      const lowerName = fileName.toLowerCase();
+      const isRush = lowerName.includes('rush rs') || lowerName.includes('rush rsa');
+      const isMultipleSports = lowerName.includes('volleyball') || lowerName.includes('basketball') || lowerName.includes('hokey');
 
       for (const row of data as any[]) {
-        const orderId = String(row['Order ID'] || '');
+        const orderId = String(row['Order ID'] || row['OrderNumber'] || row['Order#'] || '');
         if (!orderId) continue;
+        
+        // Sum the quantity directly to fix Processed Files Quantity
+        const qtyKey = Object.keys(row).find(k => k.toLowerCase().replace(/\s/g, '') === 'productqty') || 'Product Qty';
+        let rawQty = row[qtyKey];
+        if (rawQty === undefined) rawQty = row['Qty'] || row['Quantity'] || row['QTY'];
+        const qty = Number(rawQty) || 0;
+        
+        fileTotalQty += qty;
+        fileOrderIds.add(orderId);
+        
+        // Accumulate order IDs for specific categories
+        if (isRush) docRushOrderIds.add(orderId);
+        if (isMultipleSports) docMultipleSportsOrderIds.add(orderId);
+        if (lowerName.includes('mto')) docMTOOrderIds.add(orderId);
 
-        // Check for duplicate in orders_management
-        const existingOrder = await db.collection('orders_management').findOne({ OrderNumber: orderId });
+        // Check for duplicate in orders_management explicitly combining order ID and material
+        const material = String(row['Material'] || '');
+        const detailKey = `${orderId}${material}`;
+
+        // Ensure we don't treat different rows with the same order ID but different materials as duplicates
+        const existingOrder = await db.collection('orders_management').findOne({ Code: detailKey });
         
         if (existingOrder) {
-          duplicates.push({ orderId, clubName: row['Club Name'] || existingOrder.ClubName, fileName });
+          const isFileDuplicate = nonDuplicates.find(nd => nd.Code === detailKey);
+          if (!isFileDuplicate) {
+             duplicates.push({ orderId, clubName: row['Club Name'] || existingOrder.ClubName, fileName });
+          }
         } else {
-          // Transform data
+          // Verify we aren't duplicating within the exact same payload
+          const alreadyInPayload = nonDuplicates.find(nd => nd.Code === detailKey);
+          if (alreadyInPayload) {
+             continue; // ignore exact duplicate row in same file
+          }
+
           const salesDoc = String(row['Sales Document'] || '');
-          const material = String(row['Material'] || '');
           const clubName = String(row['Club Name'] || '');
-          const qty = Number(row['Product Qty']) || 0;
           
           let orderType = 'N/A';
           if (salesDoc.startsWith('1000')) orderType = 'ZBC';
           else if (salesDoc.startsWith('450')) orderType = 'ZRP';
           else if (salesDoc.startsWith('75')) orderType = 'ZMO';
           else if (salesDoc.startsWith('650')) orderType = 'ZBO';
-          else if (fileName.toLowerCase().includes('mto')) orderType = 'MTO';
+          else if (lowerName.includes('mto')) orderType = 'MTO';
 
           let cddOffset = 4;
-          if (fileName.toLowerCase().startsWith('replacement')) {
-            cddOffset = 2;
-          }
+          if (lowerName.startsWith('replacement')) cddOffset = 2;
           const cddDate = new Date();
           cddDate.setDate(cddDate.getDate() + cddOffset);
           const cdd = `${cddDate.getMonth() + 1}/${cddDate.getDate()}/${cddDate.getFullYear()}`;
@@ -416,7 +441,7 @@ app.post('/api/club-order/upload', async (req, res) => {
             OrderDate: row['Order Date'],
             "Material Number": material,
             ClubName: clubName,
-            Material: `${orderId}${material}`,
+            Material: detailKey,
             BatchNumber: batchNumber,
             year: String(new Date().getFullYear()),
             status: "Not share",
@@ -426,33 +451,26 @@ app.post('/api/club-order/upload', async (req, res) => {
             sku: row['Product SKU'],
             productName: row['Product Name'],
             unitPrice: row['Product Unit Price'],
-            Code: `${orderId}${material}`
+            Code: detailKey
           };
 
           nonDuplicates.push(newOrder);
 
-          fileTotalOrder++;
-          fileTotalQty += qty;
-          fileOrderIds.add(orderId);
           fileMaterials.add(material);
           fileSalesDocs.add(salesDoc);
-
-          if (isRush) totalRushOrders++;
-          if (orderType === 'MTO') totalMTOOrders++;
-          if (isMultipleSports) totalMultipleSportsOrders++;
+          
+          if (orderType === 'MTO') docMTOOrderIds.add(orderId);
         }
       }
       
-      // Sanitize filename to avoid MongoDB dot-in-key errors
       const safeFileName = fileName.replace(/\./g, '_DOT_');
 
-      // Only add file if it had orders
-      if (fileTotalOrder > 0 || fileOrderIds.size > 0) {
+      if (fileOrderIds.size > 0) {
         clubOrderFiles[safeFileName] = {
           originalName: fileName,
           orderIds: Array.from(fileOrderIds),
-          totalOrder: fileTotalOrder,
-          totalQty: fileTotalQty,
+          totalOrder: fileOrderIds.size, // Fixed: Uses unique ID count
+          totalQty: fileTotalQty, // Fixed: Uses summed numeric values
           materials: Array.from(fileMaterials),
           salesDocs: Array.from(fileSalesDocs),
           assigned: "",
@@ -460,43 +478,72 @@ app.post('/api/club-order/upload', async (req, res) => {
           batch: batchNumber
         };
 
-        totalOrder += fileTotalOrder;
-        totalQty += fileTotalQty;
+        Array.from(fileOrderIds).forEach(id => docOrderIds.add(id));
+        docTotalQty += fileTotalQty;
       }
     }
 
-    // Store non-duplicates in orders_management
     if (nonDuplicates.length > 0) {
       await db.collection('orders_management').insertMany(nonDuplicates);
     }
 
-    // Store in club_order
     let clubOrderResult = null;
     if (Object.keys(clubOrderFiles).length > 0) {
       const clubOrderDoc = {
         uploadDate: new Date().toLocaleDateString(),
         batch: batchNumber,
-        totalOrder,
-        totalQty,
+        totalOrder: docOrderIds.size,
+        totalQty: docTotalQty,
+        orderIds: Array.from(docOrderIds),
+        rushOrderIds: Array.from(docRushOrderIds),
+        mtoOrderIds: Array.from(docMTOOrderIds),
+        multipleSportsOrderIds: Array.from(docMultipleSportsOrderIds),
         files: clubOrderFiles
       };
       clubOrderResult = await db.collection('club_order').insertOne(clubOrderDoc);
     }
 
+    // Top Header & Multi-Batch Aggregation: Fetch all uploads for today to aggregate the total output
+    const todayStr = new Date().toLocaleDateString();
+    const todaysOrders = await db.collection('club_order').find({ uploadDate: todayStr }).toArray();
+
+    let aggregatedTotalQty = 0;
+    const aggregatedOrderIds = new Set<string>();
+    const aggregatedRush = new Set<string>();
+    const aggregatedMTO = new Set<string>();
+    const aggregatedMultipleSports = new Set<string>();
+    const aggregatedFiles: any = {};
+    const batchNumbers = new Set<string>();
+
+    todaysOrders.forEach(order => {
+      if (order.batch) batchNumbers.add(order.batch);
+      aggregatedTotalQty += (order.totalQty || 0);
+      
+      (order.orderIds || []).forEach((id: string) => aggregatedOrderIds.add(id));
+      (order.rushOrderIds || []).forEach((id: string) => aggregatedRush.add(id));
+      (order.mtoOrderIds || []).forEach((id: string) => aggregatedMTO.add(id));
+      (order.multipleSportsOrderIds || []).forEach((id: string) => aggregatedMultipleSports.add(id));
+      
+      if (order.files) {
+        Object.assign(aggregatedFiles, order.files);
+      }
+    });
+
     res.json({
       success: true,
       clubOrderId: clubOrderResult?.insertedId,
+      batch: Array.from(batchNumbers).join(', '),
       duplicates,
       nonDuplicatesCount: nonDuplicates.length,
       metrics: {
-        totalOrder,
-        totalQty,
-        totalRushOrders,
-        totalMTOOrders,
-        totalMultipleSportsOrders,
-        totalDuplicateOrders: duplicates.length
+        totalOrder: aggregatedOrderIds.size,
+        totalQty: aggregatedTotalQty,
+        totalRushOrders: aggregatedRush.size,
+        totalMTOOrders: aggregatedMTO.size,
+        totalMultipleSportsOrders: aggregatedMultipleSports.size,
+        totalDuplicateOrders: duplicates.length // Only duplicate count from the current upload
       },
-      files: clubOrderFiles
+      files: aggregatedFiles
     });
 
   } catch (error: any) {
@@ -508,8 +555,6 @@ app.post('/api/club-order/upload', async (req, res) => {
 app.put('/api/club-order/update-assignment', async (req, res) => {
   try {
     const { clubOrderId, fileName, assigned } = req.body;
-    // The fileName might be passed from the frontend as the raw name or the sanitized one.
-    // Sanitize it just in case to match how we saved it.
     const safeFileName = fileName.replace(/\./g, '_DOT_');
     const updatePath = `files.${safeFileName}.assigned`;
     await db.collection('club_order').updateOne(
@@ -524,8 +569,61 @@ app.put('/api/club-order/update-assignment', async (req, res) => {
 
 app.get('/api/club-order/latest', async (req, res) => {
   try {
-    const latest = await db.collection('club_order').find().sort({ _id: -1 }).limit(1).toArray();
-    res.json(latest[0] || null);
+    // Top Header: Date, Batch Numbers & Aggregation
+    // Aggregate multiple files uploaded on the same day dynamically.
+    const todayStr = new Date().toLocaleDateString();
+    const todaysOrders = await db.collection('club_order').find({ uploadDate: todayStr }).toArray();
+
+    if (!todaysOrders || todaysOrders.length === 0) {
+      // Intentionally fall back to the absolute latest if nothing processed today
+      const absoluteLatest = await db.collection('club_order').find().sort({ _id: -1 }).limit(1).toArray();
+      if (absoluteLatest.length === 0) {
+        return res.json(null);
+      }
+      todaysOrders.push(absoluteLatest[0]);
+    }
+
+    let aggregatedTotalQty = 0;
+    const aggregatedOrderIds = new Set<string>();
+    const aggregatedRush = new Set<string>();
+    const aggregatedMTO = new Set<string>();
+    const aggregatedMultipleSports = new Set<string>();
+    const aggregatedFiles: any = {};
+    const batchNumbers = new Set<string>();
+    
+    // Pick the most recent doc ID to represent the update assignment target if needed
+    const lastId = todaysOrders[todaysOrders.length - 1]._id;
+
+    todaysOrders.forEach(order => {
+      if (order.batch) batchNumbers.add(order.batch);
+      aggregatedTotalQty += (order.totalQty || 0);
+      
+      (order.orderIds || []).forEach((id: string) => aggregatedOrderIds.add(id));
+      (order.rushOrderIds || []).forEach((id: string) => aggregatedRush.add(id));
+      (order.mtoOrderIds || []).forEach((id: string) => aggregatedMTO.add(id));
+      (order.multipleSportsOrderIds || []).forEach((id: string) => aggregatedMultipleSports.add(id));
+      
+      if (order.files) {
+        Object.assign(aggregatedFiles, order.files);
+      }
+    });
+
+    res.json({
+      _id: lastId,
+      batch: Array.from(batchNumbers).join(', '),
+      totalOrder: aggregatedOrderIds.size,
+      totalQty: aggregatedTotalQty,
+      metrics: {
+        totalOrder: aggregatedOrderIds.size,
+        totalQty: aggregatedTotalQty,
+        totalRushOrders: aggregatedRush.size,
+        totalMTOOrders: aggregatedMTO.size,
+        totalMultipleSportsOrders: aggregatedMultipleSports.size,
+        totalDuplicateOrders: 0 // Will not aggregate historical duplicates
+      },
+      files: aggregatedFiles
+    });
+
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch latest club order' });
   }

@@ -217,7 +217,7 @@ const App: React.FC = () => {
       </nav>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 ${currentRoute === AppRoute.RECONCILIATION ? 'max-w-[1600px] lg:px-12 2xl:max-w-full' : 'max-w-7xl'}`}>
         <div className="animate-fade-in-up">
             {currentRoute === AppRoute.RECONCILIATION && <Reconciliation onEdit={handleEditOrder} />}
             {currentRoute === AppRoute.EDIT_ORDER && editingOrderId && <EditOrder orderId={editingOrderId} onBack={handleBackToReconciliation} />}

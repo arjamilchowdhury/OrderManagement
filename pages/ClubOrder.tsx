@@ -37,6 +37,7 @@ export const ClubOrder: React.FC = () => {
   const [uploadResult, setUploadResult] = useState<{
     success: boolean;
     clubOrderId?: string;
+    batch?: string;
     duplicates: DuplicateOrder[];
     nonDuplicatesCount: number;
     metrics: ClubOrderMetrics;
@@ -72,15 +73,16 @@ export const ClubOrder: React.FC = () => {
           setUploadResult({
             success: true,
             clubOrderId: data._id,
+            batch: data.batch,
             duplicates: [],
             nonDuplicatesCount: data.totalOrder,
             metrics: {
-              totalOrder: data.totalOrder,
-              totalQty: data.totalQty,
-              totalRushOrders: 0, // Not saved in db currently, could be added
-              totalMTOOrders: 0,
-              totalMultipleSportsOrders: 0,
-              totalDuplicateOrders: 0
+              totalOrder: data.metrics?.totalOrder || data.totalOrder || 0,
+              totalQty: data.metrics?.totalQty || data.totalQty || 0,
+              totalRushOrders: data.metrics?.totalRushOrders || 0,
+              totalMTOOrders: data.metrics?.totalMTOOrders || 0,
+              totalMultipleSportsOrders: data.metrics?.totalMultipleSportsOrders || 0,
+              totalDuplicateOrders: data.metrics?.totalDuplicateOrders || 0
             },
             files: data.files || {}
           });
@@ -175,7 +177,10 @@ export const ClubOrder: React.FC = () => {
       }
 
       if (res.ok) {
-        setUploadResult(data);
+        setUploadResult({
+           ...data,
+           batch: data.batch || batchNumber 
+        });
         setFiles([]);
         setBatchNumber('');
         if (data.duplicates && data.duplicates.length > 0) {
@@ -228,10 +233,19 @@ export const ClubOrder: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6 h-full p-6 bg-slate-50 overflow-auto">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Smart Club Order Processor</h1>
-          <p className="text-sm text-slate-500">Upload Excel files to process orders and check for duplicates.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-800">Smart Club Order Processor</h1>
+            {uploadResult?.batch && (
+              <span className="px-2.5 py-1 bg-brand-100 text-brand-700 text-xs font-bold uppercase tracking-wider rounded-md border border-brand-200">
+                Active Batches: {uploadResult.batch}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mt-1">
+            Current Date: {new Date().toLocaleDateString()} | Upload Excel files to process orders and check for duplicates.
+          </p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
