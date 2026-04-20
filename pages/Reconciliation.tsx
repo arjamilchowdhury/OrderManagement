@@ -195,18 +195,15 @@ export const Reconciliation: React.FC<ReconciliationProps> = ({ onEdit }) => {
         </form>
       </div>
 
-      <div className="bg-white rounded-xl shadow-card border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
-        <div className="flex-1 overflow-auto relative scrollbar-thin">
-          <table className="min-w-full table-fixed divide-y divide-slate-100">
-            <colgroup>
-              <col className="w-28" /><col className="w-28" /><col className="w-28" /><col className="w-24" /><col className="w-16" /><col className="w-96" /><col className="w-40" /><col className="w-24" /><col className="w-32" /><col className="w-28" /><col className="w-40" />{isAdmin && <col className="w-20" />}
-            </colgroup>
+      <div className="bg-white rounded-xl shadow-card border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0 w-full">
+        <div className="flex-1 w-full overflow-x-auto overflow-y-auto relative scrollbar-thin block">
+          <table className="w-full min-w-[1200px] table-auto divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <tr>
                 {['Order #', 'Sales Doc', 'Date', 'Batch', 'Year', 'Material', 'Club', 'Type', 'Status', 'CDD', 'Tracking'].map(h => (
-                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider truncate border-b border-slate-200">{h}</th>
+                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap border-b border-slate-200">{h}</th>
                 ))}
-                {isAdmin && <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">Action</th>}
+                {isAdmin && <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap border-b border-slate-200">Action</th>}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-50">

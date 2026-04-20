@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Login } from './pages/Login';
 import { Reconciliation } from './pages/Reconciliation';
@@ -29,6 +29,20 @@ const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.RECONCILIATION);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      fetch(`${import.meta.env.VITE_API_BASE || ''}/api/last-updated`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.lastUpdated) {
+            setLastUpdated(new Date(data.lastUpdated).toLocaleString());
+          }
+        })
+        .catch(err => console.error('Failed to fetch last updated', err));
+    }
+  }, [user, currentRoute]);
 
   if (loading) {
     return (
@@ -50,6 +64,10 @@ const App: React.FC = () => {
     { id: AppRoute.ORDER_CLOSING, label: 'Order Closing' },
   ];
 
+  if (userProfile?.role === 'admin') {
+     navItems.push({ id: AppRoute.EXTRACTOR, label: 'Extractor' });
+  }
+
   const handleEditOrder = (orderId: string) => {
     setEditingOrderId(orderId);
     setCurrentRoute(AppRoute.EDIT_ORDER);
@@ -62,6 +80,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
+      {/* Top Notification Banner */}
+      {lastUpdated && (
+        <div className="bg-brand-600 text-white text-xs font-semibold py-1.5 px-4 text-center tracking-wide shadow-sm z-[60] relative">
+          Last Updated: {lastUpdated}
+        </div>
+      )}
       
       {/* Top Navigation Bar - Dark Theme */}
       <nav className="bg-slate-900 shadow-xl sticky top-0 z-50 border-b border-slate-800">
@@ -217,14 +241,19 @@ const App: React.FC = () => {
       </nav>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 ${currentRoute === AppRoute.RECONCILIATION ? 'max-w-[1600px] lg:px-12 2xl:max-w-full' : 'max-w-7xl'}`}>
-        <div className="animate-fade-in-up">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 ${currentRoute === AppRoute.RECONCILIATION || currentRoute === AppRoute.EXTRACTOR ? 'max-w-[1600px] lg:px-12 2xl:max-w-full' : 'max-w-7xl'}`}>
+        <div className="animate-fade-in-up h-full">
             {currentRoute === AppRoute.RECONCILIATION && <Reconciliation onEdit={handleEditOrder} />}
             {currentRoute === AppRoute.EDIT_ORDER && editingOrderId && <EditOrder orderId={editingOrderId} onBack={handleBackToReconciliation} />}
             {currentRoute === AppRoute.CLUB_ORDER && <ClubOrder />}
             {currentRoute === AppRoute.SHIPMENT && <Shipment />}
             {currentRoute === AppRoute.GOOD_RECEIVE && <PlaceholderPage title="Goods Received" subtitle="Track incoming inventory, verify shipments, and update stock levels." />}
             {currentRoute === AppRoute.ORDER_CLOSING && <PlaceholderPage title="Order Closing" subtitle="Finalize transactions, generate invoices, and archive completed orders." />}
+            {currentRoute === AppRoute.EXTRACTOR && (
+                <div className="w-full h-[85vh] bg-white rounded-xl shadow-soft overflow-hidden border border-slate-100">
+                    <iframe src="/extractor.html" className="w-full h-full border-none" title="Extractor"></iframe>
+                </div>
+            )}
             {currentRoute === AppRoute.USERS && <UserManagement />}
         </div>
       </main>

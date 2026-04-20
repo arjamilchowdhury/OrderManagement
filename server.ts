@@ -443,7 +443,7 @@ app.post('/api/club-order/upload', async (req, res) => {
             ClubName: clubName,
             Material: detailKey,
             BatchNumber: batchNumber,
-            year: String(new Date().getFullYear()),
+            Year: Number(new Date().getFullYear()),
             status: "Not share",
             CDD: cdd,
             OrderType: orderType,
@@ -567,6 +567,36 @@ app.put('/api/club-order/update-assignment', async (req, res) => {
   }
 });
 
+app.put('/api/club-order/update-status', async (req, res) => {
+  try {
+    const { clubOrderId, fileName, status } = req.body;
+    const safeFileName = fileName.replace(/\./g, '_DOT_');
+    const updatePath = `files.${safeFileName}.clubStatus`;
+    
+    // Update the file status inside the club order record
+    await db.collection('club_order').updateOne(
+      { _id: new ObjectId(clubOrderId) },
+      { $set: { [updatePath]: status } }
+    );
+    
+    // Also sequentially update the 'orders_management' status for all rows in this file batch to keep DB in sync
+    const orderDoc = await db.collection('club_order').findOne({ _id: new ObjectId(clubOrderId) });
+    if (orderDoc && orderDoc.files && orderDoc.files[safeFileName]) {
+        const orderIds = orderDoc.files[safeFileName].orderIds || [];
+        if (orderIds.length > 0) {
+            await db.collection('orders_management').updateMany(
+                { OrderNumber: { $in: orderIds } },
+                { $set: { status: status } }
+            );
+        }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
 app.get('/api/club-order/latest', async (req, res) => {
   try {
     // Top Header: Date, Batch Numbers & Aggregation
@@ -626,6 +656,21 @@ app.get('/api/club-order/latest', async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch latest club order' });
+  }
+});
+
+app.get('/api/last-updated', async (req, res) => {
+  try {
+    const latestUpload = await db.collection('club_order').find().sort({ _id: -1 }).limit(1).toArray();
+    let lastDate = new Date();
+    
+    if (latestUpload && latestUpload.length > 0) {
+      lastDate = latestUpload[0]._id.getTimestamp();
+    }
+    
+    res.json({ lastUpdated: lastDate.toISOString() });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch last updated date' });
   }
 });
 

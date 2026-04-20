@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise AI Extractor V1</title>
+  <script src="/exceljs.patched.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root{
+      --bg:#f3f6fb;
+      --panel:#ffffff;
+      --panel-2:#f8fafc;
+      --line:#e5e7eb;
+      --text:#0f172a;
+      --muted:#64748b;
+      --brand:#2563eb;
+      --brand-2:#1d4ed8;
+      --ok:#15803d;
+      --ok-bg:#dcfce7;
+      --warn:#b45309;
+      --warn-bg:#fef3c7;
+      --bad:#b91c1c;
+      --bad-bg:#fee2e2;
+      --shadow:0 10px 30px rgba(2, 8, 23, 0.06);
+      --radius:18px;
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter, Segoe UI, Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at top left, #e8f0ff 0%, transparent 35%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+    }
+
+    .app{
+      max-width:1500px;
+      margin:0 auto;
+      padding:24px;
+    }
+
+    .hero{
+      background:linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+      color:#fff;
+      border-radius:24px;
+      padding:28px 30px;
+      box-shadow:var(--shadow);
+      margin-bottom:18px;
+    }
+
+    .hero h1{
+      margin:0 0 8px;
+      font-size:32px;
+      line-height:1.15;
+      letter-spacing:-0.02em;
+    }
+
+    .hero p{
+      margin:0;
+      color:rgba(255,255,255,.88);
+      max-width:980px;
+      font-size:15px;
+      line-height:1.6;
+    }
+
+    .top-grid{
+      display:grid;
+      grid-template-columns: 320px 1fr;
+      gap:18px;
+      align-items:start;
+    }
+
+    .sidebar, .main-panel{
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+    }
+
+    .sidebar{
+      padding:18px;
+      position:sticky;
+      top:20px;
+    }
+
+    .side-title{
+      font-size:15px;
+      font-weight:800;
+      margin:0 0 14px;
+    }
+
+    .step{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      padding:14px 12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:var(--panel-2);
+      margin-bottom:10px;
+    }
+
+    .step.no-margin{margin-bottom:0}
+    .step-num{
+      min-width:34px;
+      height:34px;
+      border-radius:50%;
+      background:var(--brand);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+      font-size:14px;
+      box-shadow:0 6px 16px rgba(37,99,235,.25);
+    }
+    .step h3{
+      margin:0 0 4px;
+      font-size:14px;
+    }
+    .step p{
+      margin:0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.5;
+    }
+
+    .main-panel{
+      padding:18px;
+    }
+
+    .toolbar{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-bottom:14px;
+    }
+
+    .toolbar h2{
+      margin:0;
+      font-size:20px;
+      letter-spacing:-0.01em;
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      border-radius:999px;
+      padding:8px 12px;
+      font-size:12px;
+      font-weight:700;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--muted);
+    }
+
+    .switcher{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .tab-btn{
+      width:100%;
+      text-align:left;
+      border:none;
+      border-radius:12px;
+      padding:10px 14px;
+      font-weight:800;
+      cursor:pointer;
+      background:#eef2ff;
+      color:#1e3a8a;
+    }
+
+    .tab-btn.active{
+      background:var(--brand);
+      color:#fff;
+      box-shadow:0 8px 18px rgba(37,99,235,.2);
+    }
+
+    .tab{
+      display:none;
+    }
+    .tab.active{
+      display:block;
+    }
+
+    .card-grid{
+      display:grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap:12px;
+      margin:14px 0 18px;
+    }
+
+    .stat{
+      background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+    }
+    .stat .label{
+      color:var(--muted);
+      font-size:12px;
+      margin-bottom:8px;
+      font-weight:600;
+    }
+    .stat .value{
+      font-size:28px;
+      font-weight:900;
+      letter-spacing:-0.02em;
+    }
+
+    .section{
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:16px;
+      background:#fff;
+      margin-bottom:14px;
+    }
+
+    .section h3{
+      margin:0 0 6px;
+      font-size:17px;
+    }
+
+    .section p{
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.6;
+    }
+
+    .row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:14px;
+    }
+
+    .filebox{
+      min-width:240px;
+      flex:1 1 260px;
+      border:1px dashed #cbd5e1;
+      background:#fbfdff;
+      border-radius:14px;
+      padding:12px;
+    }
+
+    .filebox label{
+      display:block;
+      font-size:12px;
+      font-weight:800;
+      margin-bottom:8px;
+      color:#334155;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    input[type=file]{
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:8px;
+      background:#fff;
+      font-size:13px;
+    }
+
+    button{
+      border:none;
+      border-radius:12px;
+      padding:11px 16px;
+      font-size:14px;
+      font-weight:800;
+      cursor:pointer;
+      transition:.18s ease;
+    }
+
+    button.primary{
+      background:var(--brand);
+      color:#fff;
+      box-shadow:0 10px 20px rgba(37,99,235,.18);
+    }
+
+    button.primary:hover{ background:var(--brand-2); transform:translateY(-1px); }
+    button.secondary{
+      background:#fff;
+      color:var(--text);
+      border:1px solid var(--line);
+    }
+    button.secondary:hover{ background:#f8fafc; }
+    button:disabled{ opacity:.55; cursor:not-allowed; transform:none !important; }
+
+    .status-bar{
+      margin-top:14px;
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      background:var(--panel-2);
+      font-size:13px;
+      color:#334155;
+    }
+
+    .status-ok{ background:var(--ok-bg); color:var(--ok); border-color:#bbf7d0; }
+    .status-bad{ background:var(--bad-bg); color:var(--bad); border-color:#fecaca; }
+    .status-warn{ background:var(--warn-bg); color:var(--warn); border-color:#fde68a; }
+
+    .preview-card{
+      margin-top:16px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      overflow:hidden;
+      background:#fff;
+      width:100%;
+      max-width:100%;
+    }
+
+    .preview-head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--line);
+      background:#f8fafc;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .preview-head h4{
+      margin:0;
+      font-size:15px;
+    }
+
+    .preview-head span{
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .table-wrap{
+      max-height:460px;
+      max-width:100%;
+      width:100%;
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+    }
+
+    table{
+      border-collapse:collapse;
+      width:max-content;
+      min-width:100%;
+      max-width:none;
+      background:#fff;
+    }
+
+    th, td{
+      padding:9px 10px;
+      border-bottom:1px solid #edf2f7;
+      border-right:1px solid #edf2f7;
+      font-size:12.5px;
+      white-space:nowrap;
+    }
+
+    th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:#f8fafc;
+      font-weight:800;
+      color:#334155;
+    }
+
+    tr.mismatch td{
+      background:#fef2f2;
+    }
+
+    .text-ok{color:var(--ok);font-weight:800}
+    .text-bad{color:var(--bad);font-weight:800}
+    tr.uncertain td{background:#fff7ed;}
+    tr.unpaid td{background:#fee2e2;}
+    .text-warn{color:var(--warn);font-weight:800}
+
+    .info-strip{
+      display:grid;
+      grid-template-columns:repeat(3, 1fr);
+      gap:12px;
+      margin-top:14px;
+    }
+
+    .mini{
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:#fbfdff;
+      padding:12px;
+    }
+
+    .mini h5{margin:0 0 6px;font-size:13px}
+    .mini p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
+
+    .footer-note{
+      margin-top:18px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.7;
+    }
+
+    @media (max-width:1180px){
+      .top-grid{grid-template-columns:1fr}
+      .sidebar{position:static}
+      .card-grid{grid-template-columns:repeat(2,1fr)}
+      .info-strip{grid-template-columns:1fr}
+    }
+
+    @media (max-width:760px){
+      body{overflow-x:hidden}
+      .app{padding:14px}
+      .hero{padding:22px}
+      .hero h1{font-size:26px}
+      .main-panel{padding:12px}
+      .section{padding:12px}
+      .card-grid{grid-template-columns:1fr}
+      .preview-head{padding:12px}
+      .table-wrap{max-height:360px}
+      th, td{padding:7px 8px;font-size:11px}
+      .filebox{min-width:100%;flex:1 1 100%}
+      button{width:100%}
+      .row{align-items:stretch}
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+    <section class="hero">
+      <h1>Order Validation Dashboard - Enterprise FINAL V3</h1>
+      <p>
+        This browser-based system runs without Python. Users can open the file on a PC, extract player details from the raw order CSV, then upload the cleaned CSV file together with the packing list to generate a final packing list export with mismatch checks and red-highlighted review rows.
+      </p>
+    </section>
+
+    <div class="top-grid">
+      <aside class="sidebar">
+        <h2 class="side-title">Workflow</h2>
+        <div style="margin-bottom:14px;display:flex;flex-direction:column;gap:10px;">
+          <button class="tab-btn active" style="width:100%;text-align:left;" data-tab="extractTab">Step 1: Extract</button>
+          <button class="tab-btn" style="width:100%;text-align:left;" data-tab="matchTab">Step 2: Match</button>
+        </div>
+
+        <div class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h3>Upload Raw Order CSV</h3>
+            <p>Use the original order export as input for player extraction.</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h3>Extract Player Data</h3>
+            <p>Create the cleaned order file with player number, initials, and last name columns.</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h3>Upload Packing List</h3>
+            <p>Upload the packing list workbook together with the cleaned order file.</p>
+          </div>
+        </div>
+
+        <div class="step no-margin">
+          <div class="step-num">4</div>
+          <div>
+            <h3>Export Final Packing List</h3>
+            <p>Download the reviewed workbook. Original structure stays unchanged and review columns are added at the end.</p>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          Best use case: open this HTML directly in Chrome or Edge. No Python installation is required.
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <div class="toolbar">
+          <h2>Processing Console</h2>
+        </div>
+
+        <section id="extractTab" class="tab active">
+          <div class="section">
+            <h3>Player Details Extractor</h3>
+            <p>Upload the raw order CSV. The system uses an adaptive extraction engine with segment classification, confidence scoring, and business-rule suppression to extract Player Number, Player Initial, and Player Name from Product Variation Details. Initial values like NO are kept when they are explicitly written as the player initial, and name extraction can also infer a clean unlabeled player name when it appears right beside player-related segments. Stage 1 exports a clean CSV, trims extra spaces, and forces Player Number columns to open in Excel as text so values like 00 stay exactly as 00.</p>
+
+            <div class="row">
+              <div class="filebox">
+                <label>Raw Order CSV</label>
+                <input type="file" id="rawOrdersFile" accept=".csv" />
+              </div>
+            </div>
+            <div class="row">
+              <button class="primary" id="extractBtn">Extract Order File</button>
+              <button class="secondary" id="downloadExtractBtn" disabled>Download Extracted CSV</button>
+            </div>
+            <div id="extractStatus" class="status-bar">Ready to process raw order CSV.</div>
+          </div>
+
+          <div class="card-grid">
+            <div class="stat"><div class="label">Input Rows</div><div class="value" id="ex_input">0</div></div>
+            <div class="stat"><div class="label">Output Rows</div><div class="value" id="ex_output">0</div></div>
+            <div class="stat"><div class="label">Rows With Matches</div><div class="value" id="ex_match">0</div></div>
+            <div class="stat"><div class="label">Max Player Numbers</div><div class="value" id="ex_max">0</div></div>
+            <div class="stat"><div class="label">Uncertain Rows</div><div class="value" id="ex_uncertain">0</div></div>
+          </div>
+
+          <div class="info-strip">
+            <div class="mini">
+              <h5>Input</h5>
+              <p>Raw MTO CSV only.</p>
+            </div>
+            <div class="mini">
+              <h5>Output</h5>
+              <p>Cleaned CSV file with Player Number fields preserved as text in Excel, plus extraction status and review notes.</p>
+            </div>
+            <div class="mini">
+              <h5>Use</h5>
+              <p>Download the extracted file, then upload it in Step 2.</p>
+            </div>
+          </div>
+
+          <div class="preview-card">
+            <div class="preview-head">
+              <h4>Extraction Preview</h4>
+              <span>Shows up to the first 1000 rows. Yellow rows need review.</span>
+            </div>
+            <div class="table-wrap" id="extractPreview"></div>
+          </div>
+        </section>
+
+        <section id="matchTab" class="tab">
+          <div class="section">
+            <h3>Packing List Matcher</h3>
+            <p>Upload the cleaned order XLSX/CSV and the packing list workbook. The output keeps the original packing list layout and adds review columns at the end. Mismatch rows are highlighted in red. Uncertain extraction rows are highlighted in yellow. Files are loaded into memory first for better stability. The matcher also validates quantity row by row, compares total quantity across both files, flags duplicate material rows under the same order, and adds extraction-confidence notes for easier review.</p>
+
+            <div class="row">
+              <div class="filebox">
+                <label>Cleaned Order File</label>
+                <input type="file" id="cleanOrdersFile" accept=".csv,.xlsx" />
+              </div>
+              <div class="filebox">
+                <label>Packing List Workbook</label>
+                <input type="file" id="packingFile" accept=".xlsx,.xlsm,.xltx,.xltm" />
+              </div>
+            </div>
+
+            <div class="row">
+              <button class="primary" id="matchBtn">Match Packing List</button>
+              <button class="secondary" id="downloadMatchBtn" disabled>Download Final Packing List</button>
+            </div>
+
+            <div id="matchStatus" class="status-bar">Ready to process cleaned order file and packing list.</div>
+          </div>
+
+          <div class="card-grid">
+            <div class="stat"><div class="label">Rows Processed</div><div class="value" id="mt_rows">0</div></div>
+            <div class="stat"><div class="label">OK</div><div class="value" id="mt_ok">0</div></div>
+            <div class="stat"><div class="label">Mismatch</div><div class="value" id="mt_mm">0</div></div>
+            <div class="stat"><div class="label">Player Numbers Pulled</div><div class="value" id="mt_pull">0</div></div>
+            <div class="stat"><div class="label">Packing Qty Total</div><div class="value" id="mt_packqty">0</div></div>
+            <div class="stat"><div class="label">Order Qty Total</div><div class="value" id="mt_orderqty">0</div></div>
+            <div class="stat"><div class="label">Qty Check</div><div class="value" id="mt_qtyok">—</div></div>
+            <div class="stat"><div class="label">Duplicate Material Rows</div><div class="value" id="mt_dup">0</div></div>
+          </div>
+
+          <div class="info-strip">
+            <div class="mini">
+              <h5>Validation Rule</h5>
+              <p>Matching now uses Order ID + Material from the cleaned order file against BC Order # + Material in the packing list. Header names are trimmed automatically, so columns like "Material " also match correctly.</p>
+            </div>
+            <div class="mini">
+              <h5>Name Rule</h5>
+              <p>Product SKU is no longer the main key. The system uses the Material column from the cleaned order file, which fixes cases where Product SKU differs from the packing material.</p>
+            </div>
+            <div class="mini">
+              <h5>Export</h5>
+              <p>Final file name downloads as <strong>packing list.xlsx</strong>.</p>
+            </div>
+          </div>
+
+          <div class="preview-card">
+            <div class="preview-head">
+              <h4>Matching Preview</h4>
+              <span>Red rows indicate mismatches. Duplicate same-material matches are noted for review.</span>
+            </div>
+            <div class="table-wrap" id="matchPreview"></div>
+          </div>
+        </section>
+
+        <div class="footer-note">
+          Note: this file runs in a browser and does not need Python. Because the app reads and writes Excel workbooks in the browser, it uses JavaScript spreadsheet libraries. The matching key in Step 2 is now BC Order # + Material in the packing list versus Order ID + Material in the cleaned order file. The matcher trims header spaces, and the Stage 1 CSV export removes leading and trailing spaces while forcing Player Number columns to stay as text in Excel. The Pro version also adds extraction confidence notes, inferred-name detection near player context, and highlights uncertain rows for review.
+        </div>
+      </main>
+    </div>
+</div>
+<!-- SCRIPT TAG INJECTED DYNAMICALLY IN NEXT CALL SO IT DOES NOT EXCEED TOKENS -->
+<script src="/extractor-logic.js"></script>
+<script src="/extractor-logic-2.js"></script>
+<script src="/extractor-logic-3.js"></script>
+</body>
+</html>

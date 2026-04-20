@@ -34,6 +34,7 @@ export enum AppRoute {
   SHIPMENT = 'shipment',
   GOOD_RECEIVE = 'good-receive',
   ORDER_CLOSING = 'order-closing',
+  EXTRACTOR = 'extractor',
   USERS = 'users',
   EDIT_ORDER = 'edit-order'
 }

@@ -147,7 +147,8 @@ export const ClubOrder: React.FC = () => {
         const workbook = xlsx.read(buffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const rows = xlsx.utils.sheet_to_json(sheet);
+        // { raw: false } ensures cells are parsed using their formatted text instead of raw numerical serials (which fixes date numbers like 46126)
+        const rows = xlsx.utils.sheet_to_json(sheet, { raw: false, dateNF: 'm/d/yyyy' });
         
         parsedFiles.push({
           fileName: file.name,
@@ -228,6 +229,40 @@ export const ClubOrder: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to update assignment', error);
+    }
+  };
+
+  const handleStatusChange = async (fileName: string, status: string) => {
+    if (!uploadResult?.clubOrderId) return;
+    
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/club-order/update-status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clubOrderId: uploadResult.clubOrderId,
+          fileName,
+          status
+        })
+      });
+      
+      if (res.ok) {
+        setUploadResult(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            files: {
+              ...prev.files,
+              [fileName]: {
+                ...prev.files[fileName],
+                clubStatus: status
+              }
+            }
+          };
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update status', error);
     }
   };
 
@@ -367,9 +402,20 @@ export const ClubOrder: React.FC = () => {
                         </select>
                       </td>
                       <td className="p-4">
-                        <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-full text-xs font-semibold">
-                          {data.clubStatus}
-                        </span>
+                        <select
+                          value={data.clubStatus?.startsWith('Order shared on') ? 'shared' : 'Not shared'}
+                          onChange={(e) => {
+                            const todayStr = new Date().toLocaleDateString('en-US');
+                            const newStatus = e.target.value === 'shared' ? `Order shared on ${todayStr}` : 'Not shared';
+                            handleStatusChange(fileName, newStatus);
+                          }}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                        >
+                          <option value="Not shared">Not shared</option>
+                          <option value="shared">
+                            {data.clubStatus?.startsWith('Order shared on') ? data.clubStatus : `Order shared on ${new Date().toLocaleDateString('en-US')}`}
+                          </option>
+                        </select>
                       </td>
                     </tr>
                   ))}
