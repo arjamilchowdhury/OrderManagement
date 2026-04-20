@@ -2,6 +2,14 @@ import { OrderRecord, UserProfile } from '../../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+const getHeaders = () => {
+  const isView = window.location.pathname.startsWith('/view/');
+  return {
+    'Content-Type': 'application/json',
+    ...(isView ? { 'x-viewer-mode': 'true' } : {})
+  };
+};
+
 export const api = {
   async getOrders(params: { 
     page?: number; 
@@ -25,7 +33,7 @@ export const api = {
   async createOrder(order: Partial<OrderRecord>): Promise<any> {
     const res = await fetch(`${API_BASE}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(order),
     });
     if (!res.ok) throw new Error('Failed to create order');
@@ -35,7 +43,7 @@ export const api = {
   async updateOrder(id: string, update: Partial<OrderRecord>): Promise<any> {
     const res = await fetch(`${API_BASE}/orders/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(update),
     });
     if (!res.ok) throw new Error('Failed to update order');
@@ -57,7 +65,7 @@ export const api = {
   async syncBatch(data: { sessionId: string; batchKey: string; batchData: any; rows: any[] }): Promise<void> {
     const res = await fetch(`${API_BASE}/club-collection/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error('Failed to sync batch');
@@ -66,7 +74,7 @@ export const api = {
   async updateClubRecord(data: { sessionId: string; batchKey: string; fileName: string; updateData: any }): Promise<void> {
     const res = await fetch(`${API_BASE}/club-collection/update-record`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error('Failed to update club record');
@@ -94,7 +102,7 @@ export const api = {
   async saveUserProfile(profile: UserProfile): Promise<any> {
     const res = await fetch(`${API_BASE}/users`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(profile),
     });
     if (!res.ok) throw new Error('Failed to save user profile');
@@ -104,7 +112,7 @@ export const api = {
   async login(email: string, password?: string): Promise<{ user: UserProfile }> {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) throw new Error('Login failed');
@@ -113,15 +121,49 @@ export const api = {
   async deleteUser(uid: string): Promise<any> {
     const response = await fetch(`${API_BASE}/users/${uid}`, {
       method: 'DELETE',
+      headers: getHeaders(),
     });
     return response.json();
   },
   async updateMasterReconStatus(updates: Record<string, string>): Promise<any> {
     const response = await fetch(`${API_BASE}/master-recon-status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ updates }),
     });
     return response.json();
   },
+
+  async generateShareToken(userId: string): Promise<string> {
+    const res = await fetch(`${API_BASE}/share-token`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) throw new Error('Failed to generate token');
+    const data = await res.json();
+    return data.token;
+  },
+
+  async validateShareToken(token: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/share-token/validate/${token}`);
+    if (!res.ok) throw new Error(res.status === 404 ? 'Token not found' : 'Invalid token');
+    return res.json();
+  },
+
+  async revokeShareToken(userId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/share-token/${userId}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to revoke token');
+  },
+  
+  async getShareToken(userId: string): Promise<string | null> {
+    const res = await fetch(`${API_BASE}/share-token/${userId}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('Failed to fetch token');
+    const data = await res.json();
+    return data.token;
+  }
 };

@@ -36,7 +36,8 @@ export enum AppRoute {
   ORDER_CLOSING = 'order-closing',
   EXTRACTOR = 'extractor',
   USERS = 'users',
-  EDIT_ORDER = 'edit-order'
+  EDIT_ORDER = 'edit-order',
+  USER_PROFILE = 'user-profile'
 }
 
 export const STATUS_OPTIONS = [

@@ -30,6 +30,7 @@ interface FileData {
 
 export const ClubOrder: React.FC = () => {
   const { userProfile } = useAuth();
+  const isViewer = userProfile?.role === 'viewer';
   const [batchNumber, setBatchNumber] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -290,12 +291,13 @@ export const ClubOrder: React.FC = () => {
               value={batchNumber}
               onChange={(e) => setBatchNumber(e.target.value)}
               placeholder="Enter Batch #"
-              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+              disabled={isViewer}
+              className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none disabled:opacity-50"
             />
           </div>
           <button 
             onClick={handleUpload}
-            disabled={isUploading || files.length === 0 || !batchNumber}
+            disabled={isUploading || files.length === 0 || !batchNumber || isViewer}
             className="mt-4 px-6 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-medium rounded-lg shadow-sm transition-colors"
           >
             {isUploading ? 'Processing...' : 'Upload & Process'}
@@ -305,10 +307,10 @@ export const ClubOrder: React.FC = () => {
 
       {/* Drag & Drop Zone */}
       <div 
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${isDragging ? 'border-brand-500 bg-brand-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}
+        onDragOver={isViewer ? undefined : onDragOver}
+        onDragLeave={isViewer ? undefined : onDragLeave}
+        onDrop={isViewer ? undefined : onDrop}
+        className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${isViewer ? 'opacity-50 pointer-events-none' : ''} ${isDragging ? 'border-brand-500 bg-brand-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}
       >
         <div className="flex flex-col items-center justify-center">
           <svg className="w-12 h-12 text-slate-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -318,7 +320,7 @@ export const ClubOrder: React.FC = () => {
           <p className="text-sm text-slate-500 mb-4">or click to browse (.xls, .xlsx)</p>
           <label className="cursor-pointer px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm">
             Browse Files
-            <input type="file" multiple accept=".xls,.xlsx" className="hidden" onChange={handleFileSelect} />
+            <input type="file" disabled={isViewer} multiple accept=".xls,.xlsx" className="hidden" onChange={handleFileSelect} />
           </label>
         </div>
       </div>
@@ -393,7 +395,8 @@ export const ClubOrder: React.FC = () => {
                         <select 
                           value={data.assigned || ''}
                           onChange={(e) => handleAssignmentChange(fileName, e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                          disabled={isViewer}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 outline-none disabled:opacity-50"
                         >
                           <option value="">-- Unassigned --</option>
                           {users.map(u => (
@@ -409,7 +412,8 @@ export const ClubOrder: React.FC = () => {
                             const newStatus = e.target.value === 'shared' ? `Order shared on ${todayStr}` : 'Not shared';
                             handleStatusChange(fileName, newStatus);
                           }}
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                          disabled={isViewer}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 outline-none disabled:opacity-50"
                         >
                           <option value="Not shared">Not shared</option>
                           <option value="shared">

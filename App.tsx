@@ -7,9 +7,11 @@ import { UserManagement } from './pages/UserManagement';
 import { EditOrder } from './pages/EditOrder';
 import { ClubOrder } from './pages/ClubOrder';
 import { Shipment } from './pages/Shipment';
+import { UserProfile } from './pages/UserProfile';
 import { AppRoute } from './types';
 
 const PlaceholderPage: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
+  // ... rest of PlaceHolderPage ...
   <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center p-8 bg-white rounded-2xl shadow-soft border border-slate-100">
     <div className="bg-slate-50 p-6 rounded-full mb-6">
       <svg className="w-12 h-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -25,7 +27,7 @@ const PlaceholderPage: React.FC<{ title: string; subtitle: string }> = ({ title,
 );
 
 const App: React.FC = () => {
-  const { user, userProfile, loading, logout } = useAuth();
+  const { user, userProfile, loading, logout, authError } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.RECONCILIATION);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -33,6 +35,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      if (document.body.classList.contains('viewer-mode') === false && userProfile?.role === 'viewer') {
+        document.body.classList.add('viewer-mode');
+      } else if (userProfile?.role !== 'viewer') {
+        document.body.classList.remove('viewer-mode');
+      }
       fetch(`${import.meta.env.VITE_API_BASE || ''}/api/last-updated`)
         .then(res => res.json())
         .then(data => {
@@ -42,12 +49,27 @@ const App: React.FC = () => {
         })
         .catch(err => console.error('Failed to fetch last updated', err));
     }
-  }, [user, currentRoute]);
+  }, [user, currentRoute, userProfile]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-600"></div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="bg-white p-8 rounded-2xl shadow-soft border border-slate-100 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">Access Denied</h2>
+          <p className="text-slate-500 mb-6">{authError}</p>
+          <a href="/" className="px-6 py-2.5 bg-brand-600 text-white rounded-xl font-medium hover:bg-brand-700 transition">Go to Home</a>
+        </div>
       </div>
     );
   }
@@ -128,20 +150,20 @@ const App: React.FC = () => {
                  </button>
                )}
                
-               <div className="h-8 w-px bg-slate-700"> </div>
+               <div className="h-8 w-px bg-slate-700"></div>
 
-               <div className="flex items-center gap-3">
+               <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentRoute(AppRoute.USER_PROFILE)}>
                  <div className="flex flex-col items-end">
-                   <span className="text-sm font-medium text-white leading-tight">{userProfile?.name}</span>
+                   <span className="text-sm font-medium text-white leading-tight hover:text-brand-300 transition-colors">{userProfile?.name}</span>
                    <span className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
                        userProfile?.role === 'admin' 
                          ? 'bg-purple-900/50 text-purple-200 border-purple-700/50' 
-                         : 'bg-slate-800 text-slate-300 border-slate-700'
+                         : userProfile?.role === 'viewer' ? 'bg-orange-900/50 text-orange-200 border-orange-700/50' : 'bg-slate-800 text-slate-300 border-slate-700'
                    }`}>
                        {userProfile?.role}
                    </span>
                  </div>
-                 <div className="h-8 w-8 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-xs text-white font-bold">
+                 <div className="h-8 w-8 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-xs text-white font-bold hover:bg-slate-600 transition-colors">
                     {userProfile?.name?.charAt(0) || 'U'}
                  </div>
                </div>
@@ -255,6 +277,7 @@ const App: React.FC = () => {
                 </div>
             )}
             {currentRoute === AppRoute.USERS && <UserManagement />}
+            {currentRoute === AppRoute.USER_PROFILE && <UserProfile />}
         </div>
       </main>
     </div>

@@ -9,6 +9,7 @@ interface AuthContextType {
   login: (email: string, password?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  authError: string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
+  authError: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -26,12 +28,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const fetchUserProfile = async (uid: string) => {
     try {
       const profile = await api.getUserProfile(uid);
       if (!profile) {
-        // User profile not found, maybe deleted. Log out.
         setUser(null);
         setUserProfile(null);
         localStorage.removeItem('user');
@@ -45,6 +47,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    const isViewRoute = window.location.pathname.startsWith('/view/');
+    if (isViewRoute) {
+      const token = window.location.pathname.split('/view/')[1];
+      if (token) {
+        api.validateShareToken(token).then((data) => {
+          const mockUser: User = { uid: data.user.uid, email: data.user.email, displayName: data.user.name };
+          setUser(mockUser);
+          setUserProfile(data.user);
+          setLoading(false);
+        }).catch((err) => {
+          setAuthError(err.message || "Invalid or expired share link.");
+          setLoading(false);
+        });
+        return;
+      }
+    }
+
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
       const parsedUser = JSON.parse(storedUser);
@@ -72,19 +91,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    if (window.location.pathname.startsWith('/view/')) {
+       // if viewer logs out, send them to home
+       window.location.href = '/';
+       return;
+    }
     setUser(null);
     setUserProfile(null);
     localStorage.removeItem('user');
   };
 
   const refreshProfile = async () => {
-    if (user) {
+    if (user && user.uid !== 'viewer') {
       await fetchUserProfile(user.uid);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, login, logout, refreshProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, login, logout, refreshProfile, authError }}>
       {children}
     </AuthContext.Provider>
   );

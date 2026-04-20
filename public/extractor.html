@@ -1,11 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+    if (typeof window !== 'undefined') {
+      const originalFetch = window.fetch;
+      Object.defineProperty(window, 'fetch', {
+        get: function() { return originalFetch; },
+        set: function(val) { console.warn('Intercepted and prevented window.fetch reassignment'); },
+        configurable: true
+      });
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Enterprise AI Extractor V1</title>
-  <script src="/exceljs.patched.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="/extractor-logic.js"></script>
+  <script src="/extractor-logic-2.js"></script>
+  <script src="/extractor-logic-3.js"></script>
+  <script src="/extractor-logic-4.js"></script>
   <style>
     :root{
       --bg:#f3f6fb;

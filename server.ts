@@ -5,12 +5,24 @@ import multer from 'multer';
 import * as xlsx from 'xlsx';
 import path from 'path';
 
+import { randomBytes } from 'crypto';
+
 const app = express();
 const PORT = 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Read-only Viewer Mode Middleware
+app.use((req, res, next) => {
+  const isViewer = req.headers['x-viewer-mode'] === 'true';
+  const method = req.method.toUpperCase();
+  if (isViewer && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    return res.status(403).json({ error: 'Forbidden: Cannot modify data in read-only view mode.' });
+  }
+  next();
+});
 
 const MONGO_URI = 'mongodb://120.50.3.13:27017/admin';
 let db: Db;
@@ -268,6 +280,82 @@ app.post('/api/users', async (req, res) => {
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Failed to delete user' });
+    }
+  });
+
+  app.get('/api/share-token/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const tokenDoc = await db.collection('share_tokens').findOne({ user_id: userId, is_active: true });
+      if (tokenDoc) {
+        res.json({ token: tokenDoc.token });
+      } else {
+        res.status(404).json({ error: 'Token not found' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch token' });
+    }
+  });
+
+  app.post('/api/share-token', async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const existing = await db.collection('share_tokens').findOne({ user_id: userId, is_active: true });
+      if (existing) {
+        res.json({ token: existing.token });
+        return;
+      }
+      
+      const token = randomBytes(32).toString('base64url');
+      await db.collection('share_tokens').insertOne({
+        token,
+        user_id: userId,
+        created_at: new Date(),
+        is_active: true
+      });
+      res.json({ token });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create token' });
+    }
+  });
+
+  app.delete('/api/share-token/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+      await db.collection('share_tokens').updateMany(
+        { user_id: userId },
+        { $set: { is_active: false } }
+      );
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to revoke token' });
+    }
+  });
+
+  app.get('/api/share-token/validate/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      const tokenDoc = await db.collection('share_tokens').findOne({ token, is_active: true });
+      if (!tokenDoc) {
+        res.status(404).json({ error: 'Token not valid or inactive' });
+        return;
+      }
+      const user = await db.collection('users').findOne({ uid: tokenDoc.user_id });
+      if (!user) {
+        res.status(404).json({ error: 'Associated user not found' });
+        return;
+      }
+      res.json({
+        user: {
+          uid: 'viewer', // Mock UID for viewer so they don't share user's explicit actions
+          owner_id: user.uid,
+          email: 'viewer@shared.link',
+          role: 'viewer',
+          name: `Guest of ${user.name}`
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to validate token' });
     }
   });
 

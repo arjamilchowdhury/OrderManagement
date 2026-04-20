@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-50">
   <head>
+    <script>
+      if (typeof window !== 'undefined') {
+        const originalFetch = window.fetch;
+        Object.defineProperty(window, 'fetch', {
+          get: function() { return originalFetch; },
+          set: function(val) { console.warn('Intercepted and prevented window.fetch reassignment'); },
+          configurable: true
+        });
+      }
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Order Management</title>

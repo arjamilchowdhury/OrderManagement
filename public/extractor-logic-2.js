@@ -1,3 +1,154 @@
+function standardizeYesNo(values){
+  return values.map(v=>{
+    const lv = String(v).trim().toLowerCase();
+    if (lv === 'yes') return 'Yes';
+    if (lv === 'no') return 'No';
+    return String(v).trim();
+  });
+}
+function uniqueClean(values){
+  const seen = new Set();
+  const out = [];
+  for (const raw of values || []){
+    const v = String(raw || '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+    const key = v.toUpperCase();
+    if (!v || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+function cleanupNameValue(v){
+  return String(v || '')
+    .replace(/^[\s:;,\-_=]+/, '')
+    .replace(/[\s:;,\-_=]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function toTitleCaseName(v){
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  return raw
+    .toLowerCase()
+    .split(/(\s+|-)/)
+    .map(part => {
+      if (!part || /^\s+$/.test(part) || part === '-') return part;
+      return part.split(/(['’])/).map(seg => {
+        if (seg === "'" || seg === '’') return seg;
+        return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : seg;
+      }).join('');
+    })
+    .join('');
+}
+function normalizeVariationText(raw){
+  return String(raw || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[–—]/g, '-')
+    .replace(/\r/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([,;|])\s*/g, '$1 ')
+    .trim();
+}
+function splitAdaptiveSegments(raw){
+  const normalized = normalizeVariationText(raw);
+  if (!normalized) return [];
+  return normalized
+    .split(/[,;|\n]+/)
+    .map(s => String(s || '').trim())
+    .filter(Boolean);
+}
+function cleanNameCandidate(candidate){
+  let cleaned = cleanupNameValue(candidate);
+  cleaned = cleaned
+    .replace(/\b(?:Club|Delivery Info|Player ID|Player Number|Number|Qty|Quantity|Size|Color|Region|Warehouse|Ship To|Ship Via|Orders? Will Be Received)\b.*$/i, '')
+    .replace(/^[\s:;,\-_=]+/, '')
+    .replace(/[\s:;,\-_=]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+  if (/^(yes|no|x|xx|n\/a|na|null)$/i.test(cleaned)) return '';
+  if (!/[A-Za-z]/.test(cleaned)) return '';
+  if (/^\d+$/.test(cleaned)) return '';
+  if (/\b(?:CLUB|DELIVERY INFO|PLAYER ID|ORDERS? WILL BE RECEIVED|PREMIER|UNITED|SC|FC|ACADEMY|REGION|WAREHOUSE|SHIP TO|SHIP VIA)\b/i.test(cleaned)) return '';
+  if (/^(RTHEAST|ORTHEAST|NORTHEAST|SOUTHEAST|SOUTHWEST|NORTHWEST|NORTH|SOUTH|EAST|WEST|MIDWEST|CENTRAL|USA|BD)$/i.test(cleaned)) return '';
+
+  if (!/\s/.test(cleaned)) {
+    if (cleaned.length < 2 || cleaned.length > 15) return '';
+  }
+
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  if (wordCount > 3) return '';
+  if (!/^[A-Za-z][A-Za-z'’.\-]*(?:\s+[A-Za-z][A-Za-z'’.\-]*){0,2}$/.test(cleaned)) return '';
+  return toTitleCaseName(cleaned);
+}
+function cleanInferredNameCandidate(candidate){
+  let cleaned = cleanupNameValue(candidate)
+    .replace(/\b(?:Club|Delivery Info|Player ID|Player Number|Number|Qty|Quantity|Size|Color|Region|Warehouse|Ship To|Ship Via|Orders? Will Be Received)\b.*$/i, '')
+    .replace(/^[\s:;,\-_=#]+/, '')
+    .replace(/[\s:;,\-_=#]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+  if (/^(yes|no|x|xx|n\/a|na|null)$/i.test(cleaned)) return '';
+  if (!/[A-Za-z]/.test(cleaned)) return '';
+  if (/^\d+$/.test(cleaned)) return '';
+  if (/\b(?:CLUB|DELIVERY INFO|PLAYER ID|ORDERS? WILL BE RECEIVED|PREMIER|UNITED|SC|FC|ACADEMY|REGION|WAREHOUSE|SHIP TO|SHIP VIA|ORDERS?|MATERIAL|COLOR|SIZE)\b/i.test(cleaned)) return '';
+  if (/^(RTHEAST|ORTHEAST|NORTHEAST|SOUTHEAST|SOUTHWEST|NORTHWEST|NORTH|SOUTH|EAST|WEST|MIDWEST|CENTRAL|USA|BD)$/i.test(cleaned)) return '';
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 2) return '';
+  if (!words.every(w => /^[A-Za-z][A-Za-z'’.\-]*$/.test(w))) return '';
+  if (words.length === 1){
+    const w = words[0];
+    if (w.length < 2 || w.length > 15) return '';
+  }
+  return toTitleCaseName(cleaned);
+}
+function isLikelyNameContext(type){
+  return ['player_number','player_initial','player_name','player_id','customization_flag_number','customization_flag_name'].includes(String(type || ''));
+}
+function inferNameCandidatesFromContext(segments){
+  const out = [];
+  for (let i = 0; i < (segments || []).length; i++){
+    const seg = segments[i] || {};
+    if (seg.type !== 'noise' && seg.type !== 'size') continue;
+    const prev = segments[i - 1] || {};
+    const next = segments[i + 1] || {};
+    if (!isLikelyNameContext(prev.type) && !isLikelyNameContext(next.type)) continue;
+    const inferred = cleanInferredNameCandidate(seg.text || '');
+    if (!inferred) continue;
+    out.push(makeCandidate('name', inferred, 0.88, seg.text, 'inferred_player_name', 'inferred unlabeled name near player context'));
+  }
+  return out;
+}
+function classifySegment(segment){
+  const s = String(segment || '').trim();
+
+  if (/^CLUB\s*[:=-]/i.test(s)) return 'club';
+  if (/^(DELIVERY INFO|ORDERS?\s+WILL\s+BE\s+RECEIVED)\s*[:=-]?/i.test(s)) return 'delivery';
+  if (/^(REGION|WAREHOUSE|SHIP TO|SHIP VIA)\s*[:=-]/i.test(s)) return 'logistics';
+  if (/^ADD\s*\$?\s*\d+(?:\.\d+)?\s*\$?\s*(?:TO\s*HAVE|FOR)\s*PLAYER[\s_-]*(NUMBER|INITIALS|INITIAL)\s*[:=-]?\s*(YES|NO)\b/i.test(s)) return 'customization_flag_number';
+  if (/^ADD\s*\$?\s*\d+(?:\.\d+)?\s*\$?\s*(?:TO\s*HAVE|FOR)\s*(?:PLAYER[\s_-]*)?(NAME|LAST[\s_-]*NAME|LASTNAME)\s*[:=-]?\s*(YES|NO)\b/i.test(s)) return 'customization_flag_name';
+  if (/^PLAYER[\s_-]*(NUMBER|NO|#|NUM(?:BER)?)\s*[:=-]?/i.test(s)) return 'player_number';
+  if (/^PLAYER[\s_-]*ID\s*[:=-]?/i.test(s)) return 'player_id';
+  if (/^(?:PLAYER[\s_-]*)?(INITIALS|INITIAL|INITAILS|INITALS)\s*[:=-]?/i.test(s)) return 'player_initial';
+  if (/^(?:PLAYER[\s_-]*)?(NAME|LAST[\s_-]*NAME|LASTNAME|LAST-NAME)\s*[:=-]?/i.test(s) || /^PLAYER(NAME|LASTNAME)\s*[:=-]?/i.test(s)) return 'player_name';
+  if (/\b(?:WXS|WS|WM|WL|WXL|AXS|AM|AL|AXL|A2XL|A3XL|A4XL|YXS|YS|YM|YL|YXL|NOSZ)\b/i.test(s)) return 'size';
+  if (!/[A-Za-z]/.test(s)) return 'noise';
+  return 'noise';
+}
+function makeCandidate(field, value, confidence, source, segmentType, reason){
+  return {
+    field,
+    value: String(value || '').trim(),
+    confidence: Number(confidence || 0),
+    source: String(source || '').trim(),
+    segmentType: String(segmentType || '').trim(),
+    reason: String(reason || '').trim()
+  };
+}
 function extractAdaptiveCandidates(segment, segmentType){
   const s = String(segment || '').trim();
   const candidates = [];
@@ -109,127 +260,5 @@ function resolveAdaptiveExtraction(rawText){
     confidence,
     sources,
     suppression
-  };
-}
-function buildExtractionAssessment(txt, smart){
-  const notes = [];
-  const rawText = String(txt || '');
-  const hasPlayerWord = /player/i.test(rawText);
-  let status = 'OK';
-  const req = String((smart.nameRequirements || [])[0] || '').trim().toUpperCase();
-
-  if ((smart.suppression || []).length){
-    notes.push(...smart.suppression);
-    if (status === 'OK') status = 'SUPPRESSED_BY_RULE';
-  }
-  if (hasPlayerWord && !smart.nums.length && !smart.initials.length && !smart.names.length && !smart.ids.length){
-    notes.push('Player text found but no structured player value extracted');
-    if (status === 'OK') status = 'UNCERTAIN';
-  }
-  if (hasPlayerWord && smart.names.length && !smart.nums.length && String((smart.requirements || [])[0] || '').toUpperCase() !== 'NO'){
-    notes.push('Player name found but player number missing');
-    if (status === 'OK') status = 'UNCERTAIN';
-  }
-  if (hasPlayerWord && smart.initials.length && !smart.names.length && !smart.nums.length){
-    notes.push('Only initials found; verify player details');
-    if (status === 'OK') status = 'UNCERTAIN';
-  }
-  if (smart.names.length && req === 'NO'){
-    notes.push('Name found but customization charge marked No');
-    status = 'UNPAID NAME';
-  } else if (smart.names.length && !req){
-    notes.push('Name found but name charge flag missing');
-    if (status === 'OK') status = 'UNCERTAIN';
-  }
-
-  const segmentSummary = uniqueClean((smart.segments || []).map(s => s.type)).join(', ');
-  if (segmentSummary) notes.push('Segment types: ' + segmentSummary);
-
-  return { status, note: uniqueClean(notes).join('; ') };
-}
-
-function buildExtractorOutput(inputObjects){
-  const first = inputObjects[0] || {};
-  const keys = Object.keys(first);
-  const variationKey = keys.find(k=>normalizeHeader(k)==='product variation details');
-  if (!variationKey) throw new Error("Required column 'Product Variation Details' was not found.");
-
-  const orderKey = keys.find(k=>normalizeHeader(k)==='order id');
-  const qtyKey = keys.find(k=>normalizeHeader(k)==='product qty');
-  const skuKey = keys.find(k=>normalizeHeader(k)==='product sku');
-  const nameKey = keys.find(k=>normalizeHeader(k)==='product name');
-
-  let maxNums=1, maxInitials=1, maxNames=1, matchedRows=0;
-
-  const staged = inputObjects.map((row, i)=>{
-    const txt = String(row[variationKey] || '').trim();
-    const orderId = orderKey ? String(row[orderKey] || '').trim() : '';
-    const productSku = skuKey ? String(row[skuKey] || '').trim() : '';
-
-    const smart = resolveAdaptiveExtraction(txt);
-    const nums = smart.nums;
-    const ids = smart.ids;
-    const initials = smart.initials;
-    const names = smart.names;
-    const requirements = smart.requirements;
-
-    maxNums = Math.max(maxNums, nums.length || 1);
-    maxInitials = Math.max(maxInitials, initials.length || 1);
-    maxNames = Math.max(maxNames, names.length || 1);
-
-    const hasMatch = [nums, ids, initials, names, requirements].some(a=>a.length);
-    if (hasMatch) matchedRows++;
-
-    const assess = buildExtractionAssessment(txt, smart);
-    return {
-      "Source Row": String(i+2),
-      "Order ID": orderId,
-      "Product Qty": qtyKey ? String(row[qtyKey] || '') : '',
-      "Product SKU": productSku,
-      "Product Name": nameKey ? String(row[nameKey] || '') : '',
-      "Original Product Variation Details": txt,
-      "_nums": nums,
-      "_initials": initials,
-      "_names": names,
-      "_name_requirements": smart.nameRequirements,
-      "_extract_status": assess.status,
-      "_extract_note": assess.note,
-      "_num_conf": smart.confidence.number,
-      "_init_conf": smart.confidence.initial,
-      "_name_conf": smart.confidence.name,
-      "_num_source": smart.sources.number,
-      "_init_source": smart.sources.initial,
-      "_name_source": smart.sources.name,
-      "Notes": !txt ? "Blank Product Variation Details" : (hasMatch ? "Adaptive match found" : "No target value found")
-    };
-  });
-
-  const output = staged.map(r=>{
-    const out = {
-      "Source Row": r["Source Row"],
-      "Order ID": r["Order ID"],
-      "Product Qty": r["Product Qty"],
-      "Product SKU": r["Product SKU"],
-      "Product Name": r["Product Name"],
-      "Original Product Variation Details": r["Original Product Variation Details"],
-    };
-    for (let i=0;i<maxNums;i++) out[`Player Number ${i+1}`] = r._nums[i] || '';
-    for (let i=0;i<maxInitials;i++) out[`Player Initial ${i+1}`] = r._initials[i] || '';
-    out["Player Name Raw 1"] = r._names[0] || '';
-    for (let i=0;i<maxNames;i++) out[`Player Name ${i+1}`] = r._names[i] || '';
-    out["Extraction Status"] = r._extract_status || 'OK';
-    out["Extraction Review Note"] = r._extract_note || '';
-    out["Notes"] = r["Notes"];
-    return out;
-  });
-
-  return {
-    output,
-    stats:{
-      input_rows: inputObjects.length,
-      output_rows: output.length,
-      matched_rows: matchedRows,
-      max_player_numbers: maxNums,
-    }
   };
 }

@@ -8,6 +8,7 @@ declare const XLSX: any;
 export const Shipment: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
+  const isViewer = userProfile?.role === 'viewer';
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<{ fileName: string; bdNumber: string; updatedCount: number; notFoundCount: number }[]>([]);
